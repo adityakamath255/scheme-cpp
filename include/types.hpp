@@ -30,7 +30,6 @@ class Env;
 class Ctx;
 
 struct HeapEntity;
-using MarkStack = std::vector<HeapEntity *>;
 
 struct ListProfile;
 
@@ -91,7 +90,7 @@ struct ListProfile {
 };
 
 struct HeapEntity {
-  virtual void trace(MarkStack *) const = 0;
+  virtual void trace(std::vector<HeapEntity *> *worklist) const = 0;
   virtual ~HeapEntity() = default;
 };
 
@@ -100,7 +99,7 @@ struct String : HeapEntity {
 
   String(std::string data);
 
-  void trace(MarkStack *) const override;
+  void trace(std::vector<HeapEntity *> *) const override;
 };
 
 struct Cons : HeapEntity {
@@ -108,7 +107,7 @@ struct Cons : HeapEntity {
   Obj cdr;
 
   Cons(Obj car, Obj cdr);
-  void trace(MarkStack *) const override;
+  void trace(std::vector<HeapEntity *> *) const override;
 };
 
 struct Callable : HeapEntity {
@@ -123,7 +122,7 @@ struct Builtin : Callable {
   Builtin(Fn fn);
 
   Obj call(const std::vector<Obj> &, Ctx *) const override;
-  void trace(MarkStack *) const override;
+  void trace(std::vector<HeapEntity *> *) const override;
 };
 
 struct Procedure : Callable {
@@ -140,7 +139,7 @@ struct Procedure : Callable {
   );
 
   Obj call(const std::vector<Obj>&, Ctx *) const override;
-  void trace(MarkStack *) const override;
+  void trace(std::vector<HeapEntity *> *) const override;
 };
 
 template<>
