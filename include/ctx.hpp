@@ -5,7 +5,6 @@
 
 class Ctx {
   std::vector<HeapEntity *> live;
-  std::unordered_set<HeapEntity *> marked;
   std::unordered_set<std::string> interned;
   size_t gc_threshold;
   Env *global_env;
