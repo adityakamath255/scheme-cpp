@@ -1,0 +1,22 @@
+(assert "vector literal" #(1 2 3) #(1 2 3))
+(assert "vector" #(1 2 3) (vector 1 2 3))
+(assert "vector empty" #() (vector))
+(assert "make-vector" #(0 0 0) (make-vector 3))
+(assert "make-vector fill" #(7 7 7) (make-vector 3 7))
+(assert "vector-ref" 2 (vector-ref #(1 2 3) 1))
+(assert "vector-length" 3 (vector-length #(1 2 3)))
+(assert "vector?" #t (vector? #(1 2)))
+(assert "vector? false" #f (vector? '(1 2)))
+(assert "vector->list" '(1 2 3) (vector->list #(1 2 3)))
+(assert "list->vector" #(1 2 3) (list->vector '(1 2 3)))
+
+(define v (vector 1 2 3))
+(vector-set! v 1 99)
+(assert "vector-set!" 99 (vector-ref v 1))
+
+(assert "equal? vectors" #t (equal? #(1 2 3) #(1 2 3)))
+(assert "equal? vectors false" #f (equal? #(1 2 3) #(1 2 4)))
+(assert "eq? vectors" #f (eq? #(1 2) #(1 2)))
+(assert "eq? same vector" #t (eq? v v))
+
+(summary)
