@@ -21,6 +21,7 @@ Obj::Obj(double data): data {data} {}
 Obj::Obj(Symbol data): data {data} {}
 Obj::Obj(String *data): data {data} {}
 Obj::Obj(Cons *data): data {data} {}
+Obj::Obj(Vector *data): data {data} {}
 Obj::Obj(Procedure *data): data {data} {}
 Obj::Obj(Builtin *data): data {data} {}
 Obj::Obj(Null data): data {data} {}
@@ -44,6 +45,10 @@ bool Obj::is_string() const {
 
 bool Obj::is_cons() const {
   return std::holds_alternative<Cons *>(data);
+}
+
+bool Obj::is_vector() const {
+  return std::holds_alternative<Vector *>(data);
 }
 
 bool Obj::is_procedure() const {
@@ -82,6 +87,10 @@ Cons *Obj::as_cons() const {
   return std::get<Cons *>(data);
 }
 
+Vector *Obj::as_vector() const {
+  return std::get<Vector *>(data);
+}
+
 Procedure *Obj::as_procedure() const {
   return std::get<Procedure *>(data);
 }
@@ -97,6 +106,10 @@ std::optional<HeapEntity *> Obj::heap_entity() const {
 
   else if (is_cons()) {
     return as_cons();
+  }
+
+  else if (is_vector()) {
+    return as_vector();
   }
 
   else if (is_procedure()) {
@@ -176,6 +189,23 @@ bool Obj::equals(Obj other) const {
     }
   }
 
+  else if (is_vector()) {
+    const std::vector<Obj> &vec_0 = as_vector()->data;
+    const std::vector<Obj> &vec_1 = other.as_vector()->data;
+
+    if (vec_0.size() != vec_1.size()) {
+      return false;
+    }
+    else {
+      for (size_t i = 0; i < vec_0.size(); i += 1) {
+        if (!vec_0[i].equals(vec_1[i])) {
+          return false;
+        }
+      }
+      return true;
+    }
+  }
+
   else {
     return false;
   }
@@ -234,6 +264,23 @@ std::string Obj::stringify(bool quote) const {
     return res.str();
   }
 
+  else if (is_vector()) {
+    std::ostringstream res;
+    res << "#(";
+    const std::vector<Obj> &data = as_vector()->data;
+    
+    for (size_t i = 0; i < data.size(); i += 1) {
+      if (i > 0) {
+        res << " ";
+      }
+      res << data[i].stringify(quote);
+    }
+
+    res << ")";
+
+    return res.str();
+  }
+
   else if (is_procedure()) {
     return std::format(
       "<procedure at {}>", 
@@ -280,6 +327,10 @@ std::string Obj::stringify_type() const {
 
   else if (is_cons()) {
     return "cons";
+  }
+
+  else if (is_vector()) {
+    return "vector";
   }
 
   else if (is_procedure() || is_builtin()) {
@@ -340,6 +391,16 @@ void Cons::trace(std::vector<HeapEntity *> *worklist) const {
   }
   if (auto entity = cdr.heap_entity()) {
     worklist->push_back(*entity);
+  }
+}
+
+Vector::Vector(std::vector<Obj> data): data {std::move(data)} {}
+
+void Vector::trace(std::vector<HeapEntity *> *worklist) const {
+  for (auto obj : data) {
+    if (auto entity = obj.heap_entity()) {
+      worklist->push_back(*entity);
+    }
   }
 }
 

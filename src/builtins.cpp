@@ -331,6 +331,9 @@ static Obj builtin_eq(const std::vector<Obj> &args, Ctx *) {
   else if (a.is_builtin()) {
     return a.as_builtin() == b.as_builtin();
   }
+  else if (a.is_vector()) {
+    return a.as_vector() == b.as_vector();
+  }
   return a.equals(b);
 }
 
@@ -554,6 +557,82 @@ static Obj builtin_read(const std::vector<Obj> &args, Ctx *ctx) {
   }
 }
 
+// --- vectors ---
+
+static Obj builtin_is_vector(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "vector?", 1, 1);
+  return args[0].is_vector();
+}
+
+static Obj builtin_vector(const std::vector<Obj> &args, Ctx *ctx) {
+  return ctx->alloc<Vector>(args);
+}
+
+static Obj builtin_make_vector(const std::vector<Obj> &args, Ctx *ctx) {
+  check_arity(args, "make-vector", 1, 2);
+  double n = as_num(args[0], "make-vector");
+  if (n < 0 || n != std::floor(n)) {
+    throw std::runtime_error("make-vector: expected non-negative integer");
+  }
+  Obj fill = args.size() > 1 ? args[1] : Obj(0.0);
+  return ctx->alloc<Vector>(std::vector<Obj>(static_cast<size_t>(n), fill));
+}
+
+static Obj builtin_vector_ref(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "vector-ref", 2, 2);
+  check_type(args[0], &Obj::is_vector, "vector", "vector-ref");
+  Vector *v = args[0].as_vector();
+  double i = as_num(args[1], "vector-ref");
+  if (i < 0 || i != std::floor(i) || static_cast<size_t>(i) >= v->data.size()) {
+    throw std::runtime_error("vector-ref: index out of range");
+  }
+  return v->data[static_cast<size_t>(i)];
+}
+
+static Obj builtin_vector_set(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "vector-set!", 3, 3);
+  check_type(args[0], &Obj::is_vector, "vector", "vector-set!");
+  Vector *v = args[0].as_vector();
+  double i = as_num(args[1], "vector-set!");
+  if (i < 0 || i != std::floor(i) || static_cast<size_t>(i) >= v->data.size()) {
+    throw std::runtime_error("vector-set!: index out of range");
+  }
+  v->data[static_cast<size_t>(i)] = args[2];
+  return Void{};
+}
+
+static Obj builtin_vector_length(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "vector-length", 1, 1);
+  check_type(args[0], &Obj::is_vector, "vector", "vector-length");
+  return static_cast<double>(args[0].as_vector()->data.size());
+}
+
+static Obj builtin_vector_to_list(const std::vector<Obj> &args, Ctx *ctx) {
+  check_arity(args, "vector->list", 1, 1);
+  check_type(args[0], &Obj::is_vector, "vector", "vector->list");
+  Vector *v = args[0].as_vector();
+  Obj result = Null{};
+  for (size_t i = v->data.size(); i > 0; ) {
+    i -= 1;
+    result = ctx->alloc<Cons>(v->data[i], result);
+  }
+  return result;
+}
+
+static Obj builtin_list_to_vector(const std::vector<Obj> &args, Ctx *ctx) {
+  check_arity(args, "list->vector", 1, 1);
+  std::vector<Obj> elements;
+  Obj lst = args[0];
+  while (lst.is_cons()) {
+    elements.push_back(lst.car());
+    lst = lst.cdr();
+  }
+  if (!lst.is_null()) {
+    throw std::runtime_error("list->vector: expected proper list");
+  }
+  return ctx->alloc<Vector>(std::move(elements));
+}
+
 // --- misc ---
 
 static Obj builtin_error(const std::vector<Obj> &args, Ctx *) {
@@ -682,6 +761,16 @@ void install_builtins(Env *env, Ctx *ctx) {
   install(env, ctx, "string->number", builtin_string_to_number);
   install(env, ctx, "symbol->string", builtin_symbol_to_string);
   install(env, ctx, "string->symbol", builtin_string_to_symbol);
+
+  // vectors
+  install(env, ctx, "vector?", builtin_is_vector);
+  install(env, ctx, "vector", builtin_vector);
+  install(env, ctx, "make-vector", builtin_make_vector);
+  install(env, ctx, "vector-ref", builtin_vector_ref);
+  install(env, ctx, "vector-set!", builtin_vector_set);
+  install(env, ctx, "vector-length", builtin_vector_length);
+  install(env, ctx, "vector->list", builtin_vector_to_list);
+  install(env, ctx, "list->vector", builtin_list_to_vector);
 
   // i/o
   install(env, ctx, "display", builtin_display);

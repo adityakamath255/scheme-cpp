@@ -7,8 +7,9 @@
 struct Symbol;
 struct String;
 struct Cons;
-struct Builtin;
+struct Vector;
 struct Procedure;
+struct Builtin;
 struct Null {};
 struct Void {};
 
@@ -18,6 +19,7 @@ using Value = std::variant<
   Symbol,
   String *,
   Cons *,
+  Vector *,
   Procedure *,
   Builtin *,
   Null,
@@ -53,6 +55,7 @@ public:
   Obj(Symbol);
   Obj(String *);
   Obj(Cons *);
+  Obj(Vector *);
   Obj(Procedure *);
   Obj(Builtin *);
   Obj(Null);
@@ -63,6 +66,7 @@ public:
   bool is_symbol() const;
   bool is_string() const;
   bool is_cons() const;
+  bool is_vector() const;
   bool is_procedure() const;
   bool is_builtin() const;
   bool is_null() const;
@@ -73,6 +77,7 @@ public:
   Symbol as_symbol() const;
   String *as_string() const;
   Cons *as_cons() const;
+  Vector *as_vector() const;
   Procedure *as_procedure() const;
   Builtin *as_builtin() const;
 
@@ -118,6 +123,14 @@ struct Cons : HeapEntity {
   Obj cdr;
 
   Cons(Obj car, Obj cdr);
+  void trace(std::vector<HeapEntity *> *) const override;
+};
+
+struct Vector : HeapEntity {
+  std::vector<Obj> data;
+
+  Vector(std::vector<Obj> data);
+
   void trace(std::vector<HeapEntity *> *) const override;
 };
 

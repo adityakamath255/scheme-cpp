@@ -145,6 +145,15 @@ class Parser {
       case Token::SYMBOL:
         return ctx->intern(tok.lexeme);
 
+      case Token::VEC_BEGIN: {
+        std::vector<Obj> elements;
+        while (!match(Token::RPAREN)) {
+          auto obj = parse_expr();
+          elements.push_back(obj);
+        }
+        return ctx->alloc<Vector>(std::move(elements));
+      }
+
       default:
         throw std::runtime_error("unexpected token");
     }

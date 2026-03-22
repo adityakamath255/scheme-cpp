@@ -138,7 +138,16 @@ static EvalResult eval_body(Obj list, Env *env, Ctx *ctx) {
 }
 
 static Obj eval_quasiquote(Obj obj, Env *env, Ctx *ctx) {
-  if (!obj.is_cons()) {
+  if (obj.is_vector()) {
+    auto vec = obj.as_vector();
+    std::vector<Obj> elements;
+    for (auto elem : vec->data) {
+      elements.push_back(eval_quasiquote(elem, env, ctx));
+    }
+    return ctx->alloc<Vector>(std::move(elements));
+  }
+
+  else if (!obj.is_cons()) {
     return obj;
   }
 

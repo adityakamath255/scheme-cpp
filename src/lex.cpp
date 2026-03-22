@@ -141,6 +141,10 @@ class Lexer {
     else if (match("f", true) || match("F", true)) {
       return make_token(Token::FALSE);
     }
+    else if (match("(", false)) {
+      bracket_stack.push_back(')');
+      return make_token(Token::VEC_BEGIN);
+    }
     else {
       throw std::runtime_error("unidentified constant after '#'");
     }
