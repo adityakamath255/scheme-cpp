@@ -16,6 +16,15 @@ bool Symbol::operator==(Symbol other) const {
 }
 
 Obj::Obj(Value data): data {data} {}
+Obj::Obj(bool data): data {data} {}
+Obj::Obj(double data): data {data} {}
+Obj::Obj(Symbol data): data {data} {}
+Obj::Obj(String *data): data {data} {}
+Obj::Obj(Cons *data): data {data} {}
+Obj::Obj(Procedure *data): data {data} {}
+Obj::Obj(Builtin *data): data {data} {}
+Obj::Obj(Null data): data {data} {}
+Obj::Obj(Void data): data {data} {}
 
 bool Obj::is_bool() const {
   return std::holds_alternative<bool>(data);

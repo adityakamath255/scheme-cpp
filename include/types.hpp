@@ -47,7 +47,16 @@ private:
   Value data;
 
 public:
-  Obj(Value data);
+  Obj(Value);
+  Obj(bool);
+  Obj(double);
+  Obj(Symbol);
+  Obj(String *);
+  Obj(Cons *);
+  Obj(Procedure *);
+  Obj(Builtin *);
+  Obj(Null);
+  Obj(Void);
 
   bool is_bool() const;
   bool is_number() const;

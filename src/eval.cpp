@@ -14,7 +14,8 @@ class EvalResult {
   std::variant<Obj, TailCall> data;
 
 public:
-  EvalResult(std::variant<Obj, TailCall> data): data {data} {}
+  EvalResult(Obj data): data {data} {}
+  EvalResult(TailCall data): data {std::move(data)} {}
 
   bool is_obj() const {
     return holds_alternative<Obj>(data);
@@ -132,10 +133,10 @@ static void bind_args(
     for (size_t i = 0; i + 1 < params.size(); i += 1) {
       env->define(params[i], args[i]);
     }
-    Obj rest = Obj(Null{});
+    Obj rest = Null{};
     for (size_t i = args.size(); i > params.size() - 1; ) {
       i -= 1;
-      rest = Obj(ctx->alloc<Cons>(args[i], rest));
+      rest = ctx->alloc<Cons>(args[i], rest);
     }
     env->define(params.back(), rest);
   }
@@ -153,10 +154,10 @@ static Obj wrap_body(Obj body_list, Ctx *ctx) {
   if (body_list.cdr().is_null()) {
     return body_list.car();
   }
-  return Obj(ctx->alloc<Cons>(
-    Obj(ctx->intern("begin")),
+  return ctx->alloc<Cons>(
+    ctx->intern("begin"),
     body_list
-  ));
+  );
 }
 
 static EvalResult eval_body(Obj list, Env *env, Ctx *ctx) {
@@ -164,7 +165,7 @@ static EvalResult eval_body(Obj list, Env *env, Ctx *ctx) {
     eval(list.car(), env, ctx);
     list = list.cdr();
   }
-  return EvalResult(TailCall{list.car(), env});
+  return TailCall{list.car(), env};
 }
 
 static Obj eval_quasiquote(Obj obj, Env *env, Ctx *ctx) {
@@ -189,13 +190,13 @@ static Obj eval_quasiquote(Obj obj, Env *env, Ctx *ctx) {
 
     Obj result = (
       tail.is_null() 
-      ? Obj(Null{})
+      ? Null{}
       : eval_quasiquote(tail, env, ctx)
     );
 
     for (size_t i = elements.size(); i > 0; ) {
       i -= 1;
-      result = Obj(ctx->alloc<Cons>(elements[i], result));
+      result = ctx->alloc<Cons>(elements[i], result);
     }
 
     return result;
@@ -206,7 +207,7 @@ static Obj eval_quasiquote(Obj obj, Env *env, Ctx *ctx) {
 
 static EvalResult eval_quote(Obj rest) {
   check_arity(rest, "quote", 1, 1);
-  return EvalResult(rest.car());
+  return rest.car();
 }
 
 static EvalResult eval_if(Obj rest, Env *env, Ctx *ctx) {
@@ -214,15 +215,15 @@ static EvalResult eval_if(Obj rest, Env *env, Ctx *ctx) {
   Obj pred = eval(rest.car(), env, ctx);
 
   if (pred.is_true()) {
-    return EvalResult(TailCall{rest.cdr().car(), env});
+    return TailCall{rest.cdr().car(), env};
   }
 
   else if (rest.cdr().cdr().is_cons()) {
-    return EvalResult(TailCall{rest.cdr().cdr().car(), env});
+    return TailCall{rest.cdr().cdr().car(), env};
   }
 
   else {
-    return EvalResult(Obj(Void{}));
+    return Obj(Void{});
   }
 }
 
@@ -237,25 +238,25 @@ static EvalResult eval_define(Obj rest, Env *env, Ctx *ctx) {
 
     env->define(
       fname,
-      Obj(ctx->alloc<Procedure>(
+      ctx->alloc<Procedure>(
         std::move(params), body, env, variadic
-      ))
+      )
     );
 
-    return EvalResult(Obj(Void{}));
+    return Obj(Void{});
   }
 
   else if (target.is_symbol()) {
     Symbol sym = target.as_symbol();
 
     if (rest.cdr().is_null()) {
-      env->define(sym, Obj(Void{}));
+      env->define(sym, Void{});
     }
     else {
       check_arity(rest, "define", 2, 2);
       env->define(sym, eval(rest.cdr().car(), env, ctx));
     }
-    return EvalResult(Obj(Void{}));
+    return Obj(Void{});
   }
 
   else {
@@ -283,21 +284,21 @@ static EvalResult eval_set(Obj rest, Env *env, Ctx *ctx) {
     );
   }
 
-  return EvalResult(Obj(Void{}));
+  return Obj(Void{});
 }
 
 static EvalResult eval_lambda(Obj rest, Env *env, Ctx *ctx) {
   check_arity(rest, "lambda", 2, SIZE_MAX);
   auto [params, variadic] = extract_params(rest.car());
   Obj body = wrap_body(rest.cdr(), ctx);
-  return EvalResult(Obj(ctx->alloc<Procedure>(
+  return Obj(ctx->alloc<Procedure>(
     std::move(params), body, env, variadic
-  )));
+  ));
 }
 
 static EvalResult eval_begin(Obj rest, Env *env, Ctx *ctx) {
   if (rest.is_null()) {
-    return EvalResult(Obj(Void{}));
+    return Obj(Void{});
   }
   else {
     return eval_body(rest, env, ctx);
@@ -347,11 +348,11 @@ static EvalResult eval_cond(Obj clauses, Env *env, Ctx *ctx) {
       throw std::runtime_error("cond: else clause must have a body");
     }
 
-    Obj test_val = is_else ? Obj(true) : eval(test_expr, env, ctx);
+    Obj test_val = is_else ? true : eval(test_expr, env, ctx);
 
     if (is_else || test_val.is_true()) {
       if (body.is_null()) {
-        return EvalResult(test_val);
+        return test_val;
       }
       return eval_body(body, env, ctx);
     }
@@ -359,42 +360,42 @@ static EvalResult eval_cond(Obj clauses, Env *env, Ctx *ctx) {
     clauses = clauses.cdr();
   }
 
-  return EvalResult(Obj(Void{}));
+  return Obj(Void{});
 }
 
 static EvalResult eval_and(Obj rest, Env *env, Ctx *ctx) {
   if (rest.is_null()) {
-    return EvalResult(Obj(true));
+    return Obj(true);
   }
   else {
     while (rest.cdr().is_cons()) {
       Obj val = eval(rest.car(), env, ctx);
       if (val.is_false()) {
-        return EvalResult(val);
+        return val;
       }
       else {
         rest = rest.cdr();
       }
     }
-    return EvalResult(TailCall{rest.car(), env});
+    return TailCall{rest.car(), env};
   }
 }
 
 static EvalResult eval_or(Obj rest, Env *env, Ctx *ctx) {
   if (rest.is_null()) {
-    return EvalResult(Obj(false));
+    return Obj(false);
   }
   else {
     while (rest.cdr().is_cons()) {
       Obj val = eval(rest.car(), env, ctx);
       if (val.is_true()) {
-        return EvalResult(val);
+        return val;
       }
       else {
         rest = rest.cdr();
       }
     }
-    return EvalResult(TailCall{rest.car(), env});
+    return TailCall{rest.car(), env};
   }
 }
 
@@ -402,7 +403,7 @@ static EvalResult eval_or(Obj rest, Env *env, Ctx *ctx) {
 
 static EvalResult eval_quasiquote_form(Obj rest, Env *env, Ctx *ctx) {
   check_arity(rest, "quasiquote", 1, 1);
-  return EvalResult(eval_quasiquote(rest.car(), env, ctx));
+  return eval_quasiquote(rest.car(), env, ctx);
 }
 
 static EvalResult eval_apply(Obj head, Obj rest, Env *env, Ctx *ctx) {
@@ -413,11 +414,11 @@ static EvalResult eval_apply(Obj head, Obj rest, Env *env, Ctx *ctx) {
     Procedure *p = proc.as_procedure();
     Env *new_env = ctx->alloc<Env>(p->env);
     bind_args(new_env, p->params, args, p->variadic, ctx);
-    return EvalResult(TailCall{p->body, new_env});
+    return TailCall{p->body, new_env};
   }
 
   else if (proc.is_builtin()) {
-    return EvalResult(proc.as_builtin()->fn(args, ctx));
+    return proc.as_builtin()->fn(args, ctx);
   }
 
   throw std::runtime_error(
@@ -427,7 +428,7 @@ static EvalResult eval_apply(Obj head, Obj rest, Env *env, Ctx *ctx) {
 
 static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
   if (!expr.is_symbol() && !expr.is_cons()) {
-    return EvalResult(expr);
+    return expr;
   }
 
   else if (expr.is_symbol()) {
@@ -439,7 +440,7 @@ static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
       );
     }
 
-    return EvalResult(*result);
+    return *result;
   }
 
   else {

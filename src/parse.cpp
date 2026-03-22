@@ -57,28 +57,28 @@ class Parser {
       ec == std::errc{}
       && ptr == lexeme.data() + lexeme.size()
     );
-    return Obj(val);
+    return val;
   }
 
   Obj parse_quoted(std::string_view name) {
     Symbol sym = ctx->intern(name);
     Obj quoted = parse_expr();
-    return Obj(ctx->alloc<Cons>(
-      Obj(sym),
-      Obj(ctx->alloc<Cons>(
+    return ctx->alloc<Cons>(
+      sym,
+      ctx->alloc<Cons>(
         quoted,
-        Obj(Null{})
-      ))
-    ));
+        Null{}
+      )
+    );
   }
 
   Obj parse_list() {
     if (match(Token::RPAREN)) {
-      return Obj(Null{});
+      return Null{};
     }
 
     Obj first = parse_expr();
-    Cons *head = ctx->alloc<Cons>(first, Obj(Null{}));
+    Cons *head = ctx->alloc<Cons>(first, Null{});
     Cons *tail = head;
 
     while (!match(Token::RPAREN)) {
@@ -87,15 +87,15 @@ class Parser {
         if (!match(Token::RPAREN)) {
           throw std::runtime_error("expected ')' after dotted pair");
         }
-        return Obj(head);
+        return head;
       }
 
-      Cons *next = ctx->alloc<Cons>(parse_expr(), Obj(Null{}));
-      tail->cdr = Obj(next);
+      Cons *next = ctx->alloc<Cons>(parse_expr(), Null{});
+      tail->cdr = next;
       tail = next;
     }
 
-    return Obj(head);
+    return head;
   }
 
   Obj parse_expr() {
@@ -120,30 +120,30 @@ class Parser {
         return parse_quoted("unquote-splicing");
 
       case Token::TRUE:
-        return Obj(true);
+        return true;
 
       case Token::FALSE:
-        return Obj(false);
+        return false;
 
       case Token::PLUS_INF:
-        return Obj(std::numeric_limits<double>::infinity());
+        return std::numeric_limits<double>::infinity();
 
       case Token::MINUS_INF:
-        return Obj(-std::numeric_limits<double>::infinity());
+        return -std::numeric_limits<double>::infinity();
 
       case Token::NAN_VAL:
-        return Obj(std::numeric_limits<double>::quiet_NaN());
+        return std::numeric_limits<double>::quiet_NaN();
 
       case Token::NUMBER:
         return parse_number(tok.lexeme);
 
       case Token::STRING: {
         auto str = process_escapes(tok.lexeme);
-        return Obj(ctx->alloc<String>(std::move(str)));
+        return ctx->alloc<String>(std::move(str));
       }
 
       case Token::SYMBOL:
-        return Obj(ctx->intern(tok.lexeme));
+        return ctx->intern(tok.lexeme);
 
       default:
         throw std::runtime_error("unexpected token");
