@@ -1,4 +1,3 @@
-#include "types.hpp"
 #include "env.hpp"
 
 Env::Env(Env *parent): bindings {}, parent {parent} {}
@@ -17,7 +16,7 @@ std::optional<Obj> Env::lookup(Symbol sym) const {
 }
 
 void Env::define(Symbol sym, Obj obj) {
-  bindings[sym] = obj;
+  bindings.insert_or_assign(sym, obj);
 }
 
 bool Env::set(Symbol sym, Obj obj) {
