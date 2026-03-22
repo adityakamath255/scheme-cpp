@@ -148,18 +148,18 @@ bool Obj::equals(Obj other) const {
   }
 
   else if (is_cons()) {
-    auto curr_0 = as_cons();
-    auto curr_1 = other.as_cons();
+    auto curr_0 = *this;
+    auto curr_1 = other;
     while (true) {
-      if (!curr_0->car.equals(curr_1->car)) {
+      if (!curr_0.car().equals(curr_1.car())) {
         return false;
       }
-      else if (!curr_0->cdr.is_cons() && !curr_1->cdr.is_cons()) {
-        return curr_0->cdr.equals(curr_1->cdr);
+      else if (!curr_0.cdr().is_cons() && !curr_1.cdr().is_cons()) {
+        return curr_0.cdr().equals(curr_1.cdr());
       }
-      else if (curr_0->cdr.is_cons() && curr_1->cdr.is_cons()) {
-        curr_0 = curr_0->cdr.as_cons();
-        curr_1 = curr_1->cdr.as_cons();
+      else if (curr_0.cdr().is_cons() && curr_1.cdr().is_cons()) {
+        curr_0 = curr_0.cdr();
+        curr_1 = curr_1.cdr();
       }
       else {
         return false;
@@ -191,13 +191,13 @@ std::string Obj::stringify() const {
 
   else if (is_cons()) {
     std::ostringstream res;
-    res << "(" << as_cons()->car.stringify();
+    res << "(" << car().stringify();
 
-    Obj curr = as_cons()->cdr;
+    Obj curr = cdr();
 
     while (curr.is_cons()) {
-      res << " " << curr.as_cons()->car.stringify();
-      curr = curr.as_cons()->cdr;
+      res << " " << curr.car().stringify();
+      curr = curr.cdr();
     }
 
     if (!curr.is_null()) {
@@ -274,12 +274,20 @@ std::string Obj::stringify_type() const {
   }
 }
 
+Obj Obj::car() const {
+  return as_cons()->car;
+}
+
+Obj Obj::cdr() const {
+  return as_cons()->cdr;
+}
+
 ListProfile Obj::get_list_profile() const {
   size_t len = 0;
   Obj curr = *this;
   while (curr.is_cons()) {
     len += 1;
-    curr = curr.as_cons()->cdr;
+    curr = curr.cdr();
   }
   return {
     .size = len, 

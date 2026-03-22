@@ -84,6 +84,8 @@ public:
   size_t get_list_size() const;
   bool is_list() const;
 
+  Obj car() const;
+  Obj cdr() const;
 };
 
 struct ListProfile {
