@@ -78,7 +78,7 @@ class Parser {
     }
 
     Obj first = parse_expr();
-    Cons *head = ctx->alloc<Cons>(first, Obj(Null {}));
+    Cons *head = ctx->alloc<Cons>(first, Obj(Null{}));
     Cons *tail = head;
 
     while (!match(Token::RPAREN)) {

@@ -34,8 +34,6 @@ struct HeapEntity;
 struct ListProfile;
 
 struct Symbol {
-  friend struct std::hash<Symbol>;
-  
   const std::string *ptr;
 
   Symbol(const std::string *);
@@ -121,7 +119,6 @@ struct Builtin : HeapEntity {
 
   Builtin(Fn fn);
 
-  Obj call(const std::vector<Obj> &, Ctx *) const;
   void trace(std::vector<HeapEntity *> *) const override;
 };
 

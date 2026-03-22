@@ -25,7 +25,7 @@ bool Env::set(Symbol sym, Obj obj) {
     res->second = obj;
     return true;
   }
-  if (parent) {
+  else if (parent) {
     return parent->set(sym, obj);
   }
   else {

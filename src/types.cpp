@@ -320,10 +320,6 @@ void Cons::trace(std::vector<HeapEntity *> *worklist) const {
 
 Builtin::Builtin(Builtin::Fn fn): fn {fn} {}
 
-Obj Builtin::call(const std::vector<Obj> &args, Ctx *ctx) const {
-  return fn(args, ctx);
-}
-
 void Builtin::trace(std::vector<HeapEntity *> *) const {}
 
 Procedure::Procedure(
