@@ -181,7 +181,7 @@ bool Obj::equals(Obj other) const {
   }
 }
 
-std::string Obj::stringify() const {
+std::string Obj::stringify(bool quote) const {
   if (is_bool()) {
     return as_bool() ? "#t" : "#f";
   }
@@ -195,22 +195,38 @@ std::string Obj::stringify() const {
   }
 
   else if (is_string()) {
-    return as_string()->data;
+    if (!quote) {
+      return as_string()->data;
+    }
+    else {
+      std::string res = "\"";
+      for (char c : as_string()->data) {
+        switch (c) {
+          case '"': res += "\\\""; break;
+          case '\\': res += "\\\\"; break;
+          case '\n': res += "\\n"; break;
+          case '\t': res += "\\t"; break;
+          default: res += c; break;
+        }
+      }
+      res += '"';
+      return res;
+    }
   }
 
   else if (is_cons()) {
     std::ostringstream res;
-    res << "(" << car().stringify();
+    res << "(" << car().stringify(quote);
 
     Obj curr = cdr();
 
     while (curr.is_cons()) {
-      res << " " << curr.car().stringify();
+      res << " " << curr.car().stringify(quote);
       curr = curr.cdr();
     }
 
     if (!curr.is_null()) {
-      res << " . " << curr.stringify();
+      res << " . " << curr.stringify(quote);
     }
 
     res << ")";

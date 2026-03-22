@@ -84,7 +84,7 @@ public:
   bool same_type(Obj) const;
   bool equals(Obj) const;
 
-  std::string stringify() const;
+  std::string stringify(bool) const;
   std::string stringify_type() const;
 
   ListProfile get_list_profile() const;

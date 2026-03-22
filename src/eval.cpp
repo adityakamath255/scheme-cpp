@@ -119,37 +119,6 @@ static Params extract_params(Obj formals) {
   return {names, variadic};
 }
 
-static void bind_args(
-  Env *env,
-  const std::vector<Symbol> &params,
-  const std::vector<Obj> &args,
-  bool variadic,
-  Ctx *ctx
-) {
-  if (variadic) {
-    if (args.size() + 1 < params.size()) {
-      throw std::runtime_error("too few arguments");
-    }
-    for (size_t i = 0; i + 1 < params.size(); i += 1) {
-      env->define(params[i], args[i]);
-    }
-    Obj rest = Null{};
-    for (size_t i = args.size(); i > params.size() - 1; ) {
-      i -= 1;
-      rest = ctx->alloc<Cons>(args[i], rest);
-    }
-    env->define(params.back(), rest);
-  }
-  else {
-    if (args.size() != params.size()) {
-      throw std::runtime_error("wrong number of arguments");
-    }
-    for (size_t i = 0; i < params.size(); i += 1) {
-      env->define(params[i], args[i]);
-    }
-  }
-}
-
 static Obj wrap_body(Obj body_list, Ctx *ctx) {
   if (body_list.cdr().is_null()) {
     return body_list.car();
@@ -422,7 +391,7 @@ static EvalResult eval_apply(Obj head, Obj rest, Env *env, Ctx *ctx) {
   }
 
   throw std::runtime_error(
-    "not a procedure: " + proc.stringify()
+    "not a procedure: " + proc.stringify(false)
   );
 }
 
@@ -493,6 +462,37 @@ static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
 }
 
 // --- public ---
+
+void bind_args(
+  Env *env,
+  const std::vector<Symbol> &params,
+  const std::vector<Obj> &args,
+  bool variadic,
+  Ctx *ctx
+) {
+  if (variadic) {
+    if (args.size() + 1 < params.size()) {
+      throw std::runtime_error("too few arguments");
+    }
+    for (size_t i = 0; i + 1 < params.size(); i += 1) {
+      env->define(params[i], args[i]);
+    }
+    Obj rest = Null{};
+    for (size_t i = args.size(); i > params.size() - 1; ) {
+      i -= 1;
+      rest = ctx->alloc<Cons>(args[i], rest);
+    }
+    env->define(params.back(), rest);
+  }
+  else {
+    if (args.size() != params.size()) {
+      throw std::runtime_error("wrong number of arguments");
+    }
+    for (size_t i = 0; i < params.size(); i += 1) {
+      env->define(params[i], args[i]);
+    }
+  }
+}
 
 Obj eval(Obj expr, Env *env, Ctx *ctx) {
   auto result = eval_expr(expr, env, ctx);
