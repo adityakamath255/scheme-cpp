@@ -9,7 +9,6 @@ struct String;
 struct Cons;
 struct Builtin;
 struct Procedure;
-struct Callable;
 struct Null {};
 struct Void {};
 
@@ -19,7 +18,8 @@ using Value = std::variant<
   Symbol,
   String *,
   Cons *,
-  Callable *,
+  Procedure *,
+  Builtin *,
   Null,
   Void
 >;
@@ -56,7 +56,8 @@ public:
   bool is_symbol() const;
   bool is_string() const;
   bool is_cons() const;
-  bool is_callable() const;
+  bool is_procedure() const;
+  bool is_builtin() const;
   bool is_null() const;
   bool is_void() const;
 
@@ -65,7 +66,8 @@ public:
   Symbol as_symbol() const;
   String *as_string() const;
   Cons *as_cons() const;
-  Callable *as_callable() const;
+  Procedure *as_procedure() const;
+  Builtin *as_builtin() const;
 
   std::optional<HeapEntity *> heap_entity() const;
 
@@ -110,22 +112,18 @@ struct Cons : HeapEntity {
   void trace(std::vector<HeapEntity *> *) const override;
 };
 
-struct Callable : HeapEntity {
-  virtual Obj call(const std::vector<Obj> &, Ctx *) const = 0;
-};
-
-struct Builtin : Callable {
+struct Builtin : HeapEntity {
   using Fn = Obj(*)(const std::vector<Obj> &, Ctx *);
 
   Fn fn;
 
   Builtin(Fn fn);
 
-  Obj call(const std::vector<Obj> &, Ctx *) const override;
+  Obj call(const std::vector<Obj> &, Ctx *) const;
   void trace(std::vector<HeapEntity *> *) const override;
 };
 
-struct Procedure : Callable {
+struct Procedure : HeapEntity {
   std::vector<Symbol> params;
   Obj body;
   Env *env;
@@ -138,7 +136,6 @@ struct Procedure : Callable {
     bool variadic
   );
 
-  Obj call(const std::vector<Obj>&, Ctx *) const override;
   void trace(std::vector<HeapEntity *> *) const override;
 };
 

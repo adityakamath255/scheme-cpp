@@ -37,8 +37,12 @@ bool Obj::is_cons() const {
   return std::holds_alternative<Cons *>(data);
 }
 
-bool Obj::is_callable() const {
-  return std::holds_alternative<Callable *>(data);
+bool Obj::is_procedure() const {
+  return std::holds_alternative<Procedure *>(data);
+}
+
+bool Obj::is_builtin() const {
+  return std::holds_alternative<Builtin *>(data);
 }
 
 bool Obj::is_null() const {
@@ -69,8 +73,12 @@ Cons *Obj::as_cons() const {
   return std::get<Cons *>(data);
 }
 
-Callable *Obj::as_callable() const {
-  return std::get<Callable *>(data);
+Procedure *Obj::as_procedure() const {
+  return std::get<Procedure *>(data);
+}
+
+Builtin *Obj::as_builtin() const {
+  return std::get<Builtin *>(data);
 }
 
 std::optional<HeapEntity *> Obj::heap_entity() const {
@@ -82,8 +90,12 @@ std::optional<HeapEntity *> Obj::heap_entity() const {
     return as_cons();
   }
 
-  else if (is_callable()) {
-    return as_callable();
+  else if (is_procedure()) {
+    return as_procedure();
+  }
+
+  else if (is_builtin()) {
+    return as_builtin();
   }
 
   else {
@@ -123,8 +135,12 @@ bool Obj::equals(Obj other) const {
     return as_symbol() == other.as_symbol();
   }
 
-  else if (is_callable()) {
-    return as_callable() == other.as_callable();
+  else if (is_procedure()) {
+    return as_procedure() == other.as_procedure();
+  }
+
+  else if (is_builtin()) {
+    return as_builtin() == other.as_builtin();
   }
 
   else if (is_string()) {
@@ -193,10 +209,17 @@ std::string Obj::stringify() const {
     return res.str();
   }
 
-  else if (is_callable()) {
+  else if (is_procedure()) {
     return std::format(
       "<procedure at {}>", 
-      static_cast<const void *>(as_callable())
+      static_cast<const void *>(as_procedure())
+    );
+  }
+
+  else if (is_builtin()) {
+    return std::format(
+      "<procedure at {}>",
+      static_cast<const void *>(as_builtin())
     );
   }
 
@@ -234,7 +257,7 @@ std::string Obj::stringify_type() const {
     return "cons";
   }
 
-  else if (is_callable()) {
+  else if (is_procedure() || is_builtin()) {
     return "procedure";
   }
 
@@ -301,10 +324,6 @@ Procedure::Procedure(
   Env *env,
   bool variadic
 ): params {std::move(params)}, body {body}, env {env}, variadic {variadic} {}
-
-Obj Procedure::call(const std::vector<Obj> &, Ctx *) const { 
-  return Obj(Void{}); 
-}
 
 void Procedure::trace(std::vector<HeapEntity *> *worklist) const {
   if (auto entity = body.heap_entity()) {
