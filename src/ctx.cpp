@@ -14,8 +14,8 @@ Ctx::~Ctx() {
   }
 }
 
-Symbol Ctx::intern(const std::string &name) {
-  auto [it, _] = interned.insert(name);
+Symbol Ctx::intern(std::string_view name) {
+  auto [it, _] = interned.insert(std::string(name));
   return Symbol{&*it};
 }
 

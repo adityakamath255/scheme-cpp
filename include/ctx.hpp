@@ -13,7 +13,7 @@ public:
   Ctx();
   ~Ctx();
 
-  Symbol intern(const std::string &);
+  Symbol intern(std::string_view);
 
   template<typename T, typename... Args>
   T *alloc(Args&&... args) {
