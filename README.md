@@ -52,7 +52,7 @@ Conversion: `number->string`, `string->number`, `symbol->string`, `string->symbo
 
 I/O: `display` (unquoted), `write` (quoted), `newline`, `read`
 
-Other: `error`, `eval`, `apply` (variadic: `(apply + 1 2 '(3 4))` works), `void`
+Other: `error`, `eval`, `apply` (variadic: `(apply + 1 2 '(3 4))` works), `void`, `load`, `file-exists?`, `exit`
 
 ### Standard library
 
@@ -100,15 +100,15 @@ Tests are written in Scheme using a small framework (`tests/framework.scm`) that
 
 The interpreter is 9 source files:
 
-- `lex.cpp` — tokenizer. Returns `nullopt` for incomplete input, which the REPL uses to detect multi-line expressions without a separate bracket checker.
-- `parse.cpp` — recursive descent parser. Produces S-expressions (cons cells, symbols, literals), not an AST.
-- `types.cpp` — the `Obj` class wrapping `std::variant<bool, double, Symbol, String*, Cons*, Vector*, Procedure*, Builtin*, Null, Void>`. Provides type checks, accessors, structural equality, and printing.
-- `env.cpp` — lexical environments. An `Env` is a hash map from interned symbols to values, with a parent pointer.
-- `ctx.cpp` — the `Ctx` class: arena allocator, symbol intern table, and garbage collector.
-- `eval.cpp` — evaluator. Dispatches special forms by symbol name, evaluates procedure calls, implements the tail call trampoline.
-- `builtins.cpp` — all built-in procedure implementations, registered as raw function pointers.
-- `preamble.cpp` — the standard library, stored as a string literal and evaluated at startup.
-- `main.cpp` — argument parsing, file execution, REPL loop.
+- `lex.cpp` - tokenizer. Returns `nullopt` for incomplete input, which the REPL uses to detect multi-line expressions without a separate bracket checker.
+- `parse.cpp` - recursive descent parser. Produces S-expressions (cons cells, symbols, literals), not an AST.
+- `types.cpp` - the `Obj` class wrapping `std::variant<bool, double, Symbol, String*, Cons*, Vector*, Procedure*, Builtin*, Null, Void>`. Provides type checks, accessors, structural equality, and printing.
+- `env.cpp` - lexical environments. An `Env` is a hash map from interned symbols to values, with a parent pointer.
+- `ctx.cpp` - the `Ctx` class: arena allocator, symbol intern table, and garbage collector.
+- `eval.cpp` - evaluator. Dispatches special forms by symbol name, evaluates procedure calls, implements the tail call trampoline.
+- `builtins.cpp` - all built-in procedure implementations, registered as raw function pointers.
+- `preamble.cpp` - the standard library, stored as a string literal and evaluated at startup.
+- `main.cpp` - argument parsing, file execution, REPL loop.
 
 ## Limitations
 
@@ -116,5 +116,4 @@ The interpreter is 9 source files:
 - No continuations (`call/cc`).
 - Numbers are IEEE 754 doubles only. No exact integers, rationals, or bignums. Integers above 2^53 lose precision.
 - No ports. I/O is stdin/stdout only.
-- No `load`.
 - `unquote-splicing` (`,@`) is parsed but not evaluated.

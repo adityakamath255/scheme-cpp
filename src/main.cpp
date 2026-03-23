@@ -8,6 +8,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <unistd.h>
 
 static void run(std::string_view source, Env *env, Ctx *ctx) {
   while (true) {
@@ -82,19 +83,19 @@ static void repl(Env *env, Ctx *ctx) {
 }
 
 int main(int argc, char *argv[]) {
-  bool batch = false;
+  bool interactive = false;
   std::optional<std::string> filename;
 
   for (int i = 1; i < argc; i += 1) {
     std::string_view arg = argv[i];
-    if (arg == "-b" || arg == "--batch") {
-      batch = true;
+    if (arg == "-i" || arg == "--interactive") {
+      interactive = true;
     }
     else if (!filename) {
       filename = std::string(arg);
     }
     else {
-      std::cerr << "usage: scheme [options] [file]\n";
+      std::cerr << "usage: scheme [-i] [file]\n";
       return 1;
     }
   }
@@ -112,10 +113,21 @@ int main(int argc, char *argv[]) {
     }
     std::ostringstream buf;
     buf << file.rdbuf();
-    std::string source = buf.str();
 
     try {
-      run(source, env, &ctx);
+      run(buf.str(), env, &ctx);
+    }
+    catch (const std::exception &e) {
+      std::cerr << "error: " << e.what() << "\n";
+      return 1;
+    }
+  }
+  else if (!isatty(STDIN_FILENO)) {
+    std::ostringstream buf;
+    buf << std::cin.rdbuf();
+
+    try {
+      run(buf.str(), env, &ctx);
     }
     catch (const std::exception &e) {
       std::cerr << "error: " << e.what() << "\n";
@@ -123,7 +135,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  if (!batch || !filename) {
+  if (interactive || (!filename && isatty(STDIN_FILENO))) {
     std::cout << "Scheme - Ctrl+D to exit, Ctrl+C to clear\n\n";
     repl(env, &ctx);
   }

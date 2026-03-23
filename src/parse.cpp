@@ -53,10 +53,8 @@ class Parser {
       lexeme.data() + lexeme.size(),
       val
     );
-    assert(
-      ec == std::errc{}
-      && ptr == lexeme.data() + lexeme.size()
-    );
+    (void)ptr;
+    assert(ec == std::errc{} && ptr == lexeme.data() + lexeme.size());
     return val;
   }
 

@@ -6,7 +6,7 @@ failed=0
 for bench in bench/*.scm; do
   name=$(basename "$bench" .scm)
 
-  elapsed=$( { time timeout 30s ./build/scheme -b "$bench" > /dev/null 2>&1 ; } 2>&1 )
+  elapsed=$( { time timeout 30s ./build/scheme "$bench" > /dev/null 2>&1 ; } 2>&1 )
   exit_code=$?
 
   ms=$(echo "$elapsed" | grep '^real' | awk '{print $2}' | \

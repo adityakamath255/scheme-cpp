@@ -8,6 +8,7 @@
 #include <cmath>
 #include <iostream>
 #include <sstream>
+#include <fstream>
 #include <charconv>
 
 // --- helpers ---
@@ -650,6 +651,47 @@ static Obj builtin_eval(const std::vector<Obj> &args, Ctx *ctx) {
   return eval(args[0], ctx->get_global_env(), ctx);
 }
 
+static Obj builtin_load(const std::vector<Obj> &args, Ctx *ctx) {
+  check_arity(args, "load", 1, 1);
+  check_type(args[0], &Obj::is_string, "string", "load");
+
+  std::ifstream file(args[0].as_string()->data);
+  if (!file) {
+    throw std::runtime_error("load: could not open " + args[0].as_string()->data);
+  }
+  std::ostringstream buf;
+  buf << file.rdbuf();
+  std::string source = buf.str();
+
+  Env *env = ctx->get_global_env();
+  while (true) {
+    auto result = lex(source);
+    if (!result || result->tokens.empty()) break;
+    Obj expr = parse(result->tokens, ctx);
+    eval(expr, env, ctx);
+    source = result->rest;
+    if (ctx->should_recycle()) ctx->recycle();
+  }
+
+  return Obj(Void{});
+}
+
+static Obj builtin_file_exists(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "file-exists?", 1, 1);
+  check_type(args[0], &Obj::is_string, "string", "file-exists?");
+  return Obj(std::ifstream(args[0].as_string()->data).good());
+}
+
+static Obj builtin_exit(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "exit", 0, 1);
+  int code = 0;
+  if (!args.empty()) {
+    check_type(args[0], &Obj::is_number, "number", "exit");
+    code = static_cast<int>(args[0].as_number());
+  }
+  std::exit(code);
+}
+
 static Obj builtin_apply(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "apply", 2, SIZE_MAX);
 
@@ -782,4 +824,7 @@ void install_builtins(Env *env, Ctx *ctx) {
   install(env, ctx, "error", builtin_error);
   install(env, ctx, "eval", builtin_eval);
   install(env, ctx, "apply", builtin_apply);
+  install(env, ctx, "load", builtin_load);
+  install(env, ctx, "file-exists?", builtin_file_exists);
+  install(env, ctx, "exit", builtin_exit);
 }
