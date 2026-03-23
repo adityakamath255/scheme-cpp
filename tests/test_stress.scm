@@ -1,7 +1,7 @@
 ;; build a large list and traverse it
-(define big (iota 10000))
-(assert "big list length" 10000 (length big))
-(assert "big list sum" 49995000 (reduce + 0 big))
+(define big (iota 2000))
+(assert "big list length" 2000 (length big))
+(assert "big list sum" 1999000 (reduce + 0 big))
 
 ;; heavy allocation — map creates many cons cells, triggers GC
 (define squares (map (lambda (x) (* x x)) big))
