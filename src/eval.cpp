@@ -124,7 +124,7 @@ static Obj wrap_body(Obj body_list, Ctx *ctx) {
     return body_list.car();
   }
   return ctx->alloc<Cons>(
-    ctx->intern("begin"),
+    ctx->sym_begin,
     body_list
   );
 }
@@ -152,8 +152,8 @@ static Obj eval_quasiquote(Obj obj, Env *env, Ctx *ctx) {
   }
 
   else if (
-    obj.car().is_symbol() 
-    && obj.car().as_symbol().get_name() == "unquote"
+    obj.car().is_symbol()
+    && obj.car().as_symbol() == ctx->sym_unquote
   ) {
     return eval(obj.cdr().car(), env, ctx);
   }
@@ -315,7 +315,7 @@ static EvalResult eval_cond(Obj clauses, Env *env, Ctx *ctx) {
 
     bool is_else = (
       test_expr.is_symbol()
-      && test_expr.as_symbol().get_name() == "else"
+      && test_expr.as_symbol() == ctx->sym_else
     );
 
     if (is_else && clauses.cdr().is_cons()) {
@@ -426,42 +426,42 @@ static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
     Obj rest = expr.cdr();
 
     if (head.is_symbol()) {
-      const std::string &name = head.as_symbol().get_name();
+      Symbol sym = head.as_symbol();
 
-      if (name == "quote") {
+      if (sym == ctx->sym_quote) {
         return eval_quote(rest);
       }
-      else if (name == "if") { 
+      else if (sym == ctx->sym_if) {
         return eval_if(rest, env, ctx);
       }
-      else if (name == "define") {
+      else if (sym == ctx->sym_define) {
         return eval_define(rest, env, ctx);
       }
-      else if (name == "set!") {
+      else if (sym == ctx->sym_set) {
         return eval_set(rest, env, ctx);
       }
-      else if (name == "lambda") {
+      else if (sym == ctx->sym_lambda) {
         return eval_lambda(rest, env, ctx);
       }
-      else if (name == "begin") {
+      else if (sym == ctx->sym_begin) {
         return eval_begin(rest, env, ctx);
       }
-      else if (name == "let") {
+      else if (sym == ctx->sym_let) {
         return eval_let(rest, env, ctx, false);
       }
-      else if (name == "let*") {
+      else if (sym == ctx->sym_letstar) {
         return eval_let(rest, env, ctx, true);
       }
-      else if (name == "cond") {
+      else if (sym == ctx->sym_cond) {
         return eval_cond(rest, env, ctx);
       }
-      else if (name == "and") {
+      else if (sym == ctx->sym_and) {
         return eval_and(rest, env, ctx);
       }
-      else if (name == "or") {
+      else if (sym == ctx->sym_or) {
         return eval_or(rest, env, ctx);
       }
-      else if (name == "quasiquote") {
+      else if (sym == ctx->sym_quasiquote) {
         return eval_quasiquote_form(rest, env, ctx);
       }
     }

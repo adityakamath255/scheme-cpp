@@ -3,7 +3,21 @@
 Ctx::Ctx():
   live {},
   interned {},
-  gc_threshold {1024}
+  gc_threshold {1024},
+  sym_quote {intern("quote")},
+  sym_if {intern("if")},
+  sym_define {intern("define")},
+  sym_set {intern("set!")},
+  sym_lambda {intern("lambda")},
+  sym_begin {intern("begin")},
+  sym_let {intern("let")},
+  sym_letstar {intern("let*")},
+  sym_cond {intern("cond")},
+  sym_and {intern("and")},
+  sym_or {intern("or")},
+  sym_quasiquote {intern("quasiquote")},
+  sym_unquote {intern("unquote")},
+  sym_else {intern("else")}
 {
   global_env = alloc<Env>(nullptr);
 }
