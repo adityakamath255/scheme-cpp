@@ -282,10 +282,18 @@ std::string Obj::stringify(bool quote) const {
   }
 
   else if (is_procedure()) {
-    return std::format(
-      "<procedure at {}>", 
-      static_cast<const void *>(as_procedure())
-    );
+    if (as_procedure()->macro) {
+      return std::format(
+        "<macro at {}>",
+        static_cast<const void *>(as_procedure())
+      );
+    }
+    else {
+      return std::format(
+        "<procedure at {}>",
+        static_cast<const void *>(as_procedure())
+      );
+    }
   }
 
   else if (is_builtin()) {
@@ -412,8 +420,15 @@ Procedure::Procedure(
   std::vector<Symbol> params,
   Obj body,
   Env *env,
-  bool variadic
-): params {std::move(params)}, body {body}, env {env}, variadic {variadic} {}
+  bool variadic,
+  bool macro
+): 
+  params {std::move(params)}, 
+  body {body}, 
+  env {env}, 
+  variadic {variadic},
+  macro {macro}
+{}
 
 void Procedure::trace(std::vector<HeapEntity *> *worklist) const {
   if (auto entity = body.heap_entity()) {

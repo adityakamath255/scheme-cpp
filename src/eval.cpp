@@ -162,7 +162,23 @@ static Obj eval_quasiquote(Obj obj, Env *env, Ctx *ctx) {
     std::vector<Obj> elements;
     Obj tail = obj;
     while (tail.is_cons()) {
-      elements.push_back(eval_quasiquote(tail.car(), env, ctx));
+      Obj elem = tail.car();
+
+      if (
+        elem.is_cons()
+        && elem.car().is_symbol()
+        && elem.car().as_symbol() == ctx->sym_unquote_splicing
+      ) {
+        Obj spliced = eval(elem.cdr().car(), env, ctx);
+        while (spliced.is_cons()) {
+          elements.push_back(spliced.car());
+          spliced = spliced.cdr();
+        }
+      }
+      else {
+        elements.push_back(eval_quasiquote(elem, env, ctx));
+      }
+
       tail = tail.cdr();
     }
 
@@ -217,7 +233,7 @@ static EvalResult eval_define(Obj rest, Env *env, Ctx *ctx) {
     env->define(
       fname,
       ctx->alloc<Procedure>(
-        std::move(params), body, env, variadic
+        std::move(params), body, env, variadic, false
       )
     );
 
@@ -245,6 +261,48 @@ static EvalResult eval_define(Obj rest, Env *env, Ctx *ctx) {
   }
 }
 
+static EvalResult eval_define_macro(Obj rest, Env *env, Ctx *ctx) {
+  check_arity(rest, "define-macro", 2, SIZE_MAX);
+  Obj target = rest.car();
+
+  if (target.is_cons()) {
+    Symbol name = target.car().as_symbol();
+    auto [params, variadic] = extract_params(target.cdr());
+    Obj body = wrap_body(rest.cdr(), ctx);
+
+    env->define(
+      name,
+      ctx->alloc<Procedure>(
+        std::move(params), body, env, variadic, true
+      )
+    );
+  }
+
+  else if (target.is_symbol()) {
+    check_arity(rest, "define-macro", 2, 2);
+    Obj val = eval(rest.cdr().car(), env, ctx);
+
+    if (!val.is_procedure()) {
+      throw std::runtime_error("define-macro: expected procedure");
+    }
+
+    Procedure *p = val.as_procedure();
+
+    env->define(
+      target.as_symbol(),
+      ctx->alloc<Procedure>(p->params, p->body, p->env, p->variadic, true)
+    );
+  }
+
+  else {
+    throw std::runtime_error(
+      "define-macro: expected symbol or list"
+    );
+  }
+
+  return Obj(Void{});
+}
+
 static EvalResult eval_set(Obj rest, Env *env, Ctx *ctx) {
   check_arity(rest, "set!", 2, 2);
   if (!rest.car().is_symbol()) {
@@ -270,7 +328,7 @@ static EvalResult eval_lambda(Obj rest, Env *env, Ctx *ctx) {
   auto [params, variadic] = extract_params(rest.car());
   Obj body = wrap_body(rest.cdr(), ctx);
   return Obj(ctx->alloc<Procedure>(
-    std::move(params), body, env, variadic
+    std::move(params), body, env, variadic, false
   ));
 }
 
@@ -463,6 +521,31 @@ static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
       }
       else if (sym == ctx->sym_quasiquote) {
         return eval_quasiquote_form(rest, env, ctx);
+      }
+      else if (sym == ctx->sym_define_macro) {
+        return eval_define_macro(rest, env, ctx);
+      }
+
+      auto macro_val = env->lookup(sym);
+
+      if (
+        macro_val 
+        && macro_val->is_procedure()
+        && macro_val->as_procedure()->macro
+      ) {
+        Procedure *p = macro_val->as_procedure();
+        std::vector<Obj> raw_args;
+        Obj arg_list = rest;
+
+        while (arg_list.is_cons()) {
+          raw_args.push_back(arg_list.car());
+          arg_list = arg_list.cdr();
+        }
+
+        Env *macro_env = ctx->alloc<Env>(p->env);
+        bind_args(macro_env, p->params, raw_args, p->variadic, ctx);
+        Obj expanded = eval(p->body, macro_env, ctx);
+        return TailCall{expanded, env};
       }
     }
 

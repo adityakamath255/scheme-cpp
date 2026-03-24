@@ -149,12 +149,14 @@ struct Procedure : HeapEntity {
   Obj body;
   Env *env;
   bool variadic;
+  bool macro;
 
   Procedure(
     std::vector<Symbol> params,
     Obj body,
     Env *env,
-    bool variadic
+    bool variadic,
+    bool macro
   );
 
   void trace(std::vector<HeapEntity *> *) const override;

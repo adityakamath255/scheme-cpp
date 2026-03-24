@@ -17,7 +17,9 @@ Ctx::Ctx():
   sym_or {intern("or")},
   sym_quasiquote {intern("quasiquote")},
   sym_unquote {intern("unquote")},
-  sym_else {intern("else")}
+  sym_unquote_splicing {intern("unquote-splicing")},
+  sym_else {intern("else")},
+  sym_define_macro {intern("define-macro")}
 {
   global_env = alloc<Env>(nullptr);
 }
