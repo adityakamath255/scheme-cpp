@@ -145,6 +145,9 @@ class Lexer {
       bracket_stack.push_back(')');
       return make_token(Token::VEC_BEGIN);
     }
+    else if (match("\\", false)) {
+      return char_token();
+    }
     else {
       throw std::runtime_error("unidentified constant after '#'");
     }
@@ -206,6 +209,17 @@ class Lexer {
     else {
       return make_token(Token::NUMBER);
     }
+  }
+
+  Token char_token() {
+    if (curr >= input.size()) {
+      throw std::runtime_error("expected character after #\\");
+    }
+    curr += 1;
+    while (!at_boundary()) {
+      curr += 1;
+    }
+    return make_token(Token::CHAR);
   }
 
   std::optional<Token> next_token() {

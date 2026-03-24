@@ -428,7 +428,7 @@ static Obj builtin_string_length(const std::vector<Obj> &args, Ctx *) {
   return static_cast<double>(args[0].as_string()->data.size());
 }
 
-static Obj builtin_string_ref(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_string_ref(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "string-ref", 2, 2);
   check_type(args[0], &Obj::is_string, "string", "string-ref");
   const std::string &s = args[0].as_string()->data;
@@ -440,7 +440,7 @@ static Obj builtin_string_ref(const std::vector<Obj> &args, Ctx *ctx) {
   if (index >= s.size()) {
     throw std::runtime_error("string-ref: index out of range");
   }
-  return ctx->alloc<String>(std::string(1, s[index]));
+  return s[index];
 }
 
 static Obj builtin_substring(const std::vector<Obj> &args, Ctx *ctx) {
@@ -480,6 +480,59 @@ static Obj builtin_string_eq(const std::vector<Obj> &args, Ctx *) {
   check_type(args[0], &Obj::is_string, "string", "string=?");
   check_type(args[1], &Obj::is_string, "string", "string=?");
   return args[0].as_string()->data == args[1].as_string()->data;
+}
+
+// --- chars ---
+
+static Obj builtin_is_char(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "char?", 1, 1);
+  return args[0].is_char();
+}
+
+static Obj builtin_char_eq(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "char=?", 2, 2);
+  check_type(args[0], &Obj::is_char, "char", "char=?");
+  check_type(args[1], &Obj::is_char, "char", "char=?");
+  return args[0].as_char() == args[1].as_char();
+}
+
+static Obj builtin_char_to_integer(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "char->integer", 1, 1);
+  check_type(args[0], &Obj::is_char, "char", "char->integer");
+  return static_cast<double>(args[0].as_char());
+}
+
+static Obj builtin_integer_to_char(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "integer->char", 1, 1);
+  double n = as_num(args[0], "integer->char");
+  return static_cast<char>(static_cast<int>(n));
+}
+
+static Obj builtin_string_to_list(const std::vector<Obj> &args, Ctx *ctx) {
+  check_arity(args, "string->list", 1, 1);
+  check_type(args[0], &Obj::is_string, "string", "string->list");
+  const std::string &s = args[0].as_string()->data;
+  Obj result = Null{};
+  for (size_t i = s.size(); i > 0; ) {
+    i -= 1;
+    result = ctx->alloc<Cons>(s[i], result);
+  }
+  return result;
+}
+
+static Obj builtin_list_to_string(const std::vector<Obj> &args, Ctx *ctx) {
+  check_arity(args, "list->string", 1, 1);
+  std::string result;
+  Obj lst = args[0];
+  while (lst.is_cons()) {
+    check_type(lst.car(), &Obj::is_char, "char", "list->string");
+    result += lst.car().as_char();
+    lst = lst.cdr();
+  }
+  if (!lst.is_null()) {
+    throw std::runtime_error("list->string: expected proper list");
+  }
+  return ctx->alloc<String>(std::move(result));
 }
 
 // --- conversion ---
@@ -797,6 +850,14 @@ void install_builtins(Env *env, Ctx *ctx) {
   install(env, ctx, "substring", builtin_substring);
   install(env, ctx, "string-append", builtin_string_append);
   install(env, ctx, "string=?", builtin_string_eq);
+
+  // chars
+  install(env, ctx, "char?", builtin_is_char);
+  install(env, ctx, "char=?", builtin_char_eq);
+  install(env, ctx, "char->integer", builtin_char_to_integer);
+  install(env, ctx, "integer->char", builtin_integer_to_char);
+  install(env, ctx, "string->list", builtin_string_to_list);
+  install(env, ctx, "list->string", builtin_list_to_string);
 
   // conversion
   install(env, ctx, "number->string", builtin_number_to_string);

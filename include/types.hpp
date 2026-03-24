@@ -16,6 +16,7 @@ struct Void {};
 using Value = std::variant<
   bool,
   double,
+  char,
   Symbol,
   String *,
   Cons *,
@@ -52,6 +53,7 @@ public:
   Obj(Value);
   Obj(bool);
   Obj(double);
+  Obj(char);
   Obj(Symbol);
   Obj(String *);
   Obj(Cons *);
@@ -63,6 +65,7 @@ public:
 
   bool is_bool() const;
   bool is_number() const;
+  bool is_char() const;
   bool is_symbol() const;
   bool is_string() const;
   bool is_cons() const;
@@ -74,6 +77,7 @@ public:
 
   bool as_bool() const;
   double as_number() const;
+  char as_char() const;
   Symbol as_symbol() const;
   String *as_string() const;
   Cons *as_cons() const;

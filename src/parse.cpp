@@ -152,6 +152,25 @@ class Parser {
         return ctx->alloc<Vector>(std::move(elements));
       }
 
+      case Token::CHAR: {
+        std::string_view name = tok.lexeme.substr(2);
+        if (name == "space") {
+          return ' ';
+        }
+        else if (name == "newline") {
+          return '\n';
+        }
+        else if (name == "tab") {
+          return '\t';
+        }
+        else if (name == "return") {
+          return '\r';
+        }
+        else {
+          return name[0];
+        }
+      }
+
       default:
         throw std::runtime_error("unexpected token");
     }

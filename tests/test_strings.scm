@@ -1,5 +1,5 @@
 (assert "string-length" 5 (string-length "hello"))
-(assert "string-ref" "e" (string-ref "hello" 1))
+(assert "string-ref" #\e (string-ref "hello" 1))
 (assert "substring" "ell" (substring "hello" 1 4))
 (assert "string-append" "hello world" (string-append "hello" " " "world"))
 (assert "string=?" #t (string=? "abc" "abc"))

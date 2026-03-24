@@ -18,6 +18,7 @@ bool Symbol::operator==(Symbol other) const {
 Obj::Obj(Value data): data {data} {}
 Obj::Obj(bool data): data {data} {}
 Obj::Obj(double data): data {data} {}
+Obj::Obj(char data): data {data} {}
 Obj::Obj(Symbol data): data {data} {}
 Obj::Obj(String *data): data {data} {}
 Obj::Obj(Cons *data): data {data} {}
@@ -33,6 +34,10 @@ bool Obj::is_bool() const {
 
 bool Obj::is_number() const {
   return std::holds_alternative<double>(data);
+}
+
+bool Obj::is_char() const {
+  return std::holds_alternative<char>(data);
 }
 
 bool Obj::is_symbol() const {
@@ -73,6 +78,10 @@ bool Obj::as_bool() const {
 
 double Obj::as_number() const {
   return std::get<double>(data);
+}
+
+char Obj::as_char() const {
+  return get<char>(data);
 }
 
 Symbol Obj::as_symbol() const {
@@ -149,8 +158,13 @@ bool Obj::equals(Obj other) const {
   else if (is_bool()) {
     return as_bool() == other.as_bool();
   }
+
   else if (is_number()) {
     return as_number() == other.as_number();
+  }
+
+  else if (is_char()) {
+    return as_char() == other.as_char();
   }
 
   else if (is_symbol()) {
@@ -218,6 +232,17 @@ std::string Obj::stringify(bool quote) const {
 
   else if (is_number()) {
     return std::format("{}", as_number());
+  }
+
+  else if (is_char()) {
+    char c = as_char();
+    switch (c) {
+      case ' ': return "#\\space";
+      case '\n': return "#\\newline";
+      case '\t': return "#\\tab";
+      case '\r': return "#\\return";
+      default: return std::string("#\\") + c;
+    }
   }
 
   else if (is_symbol()) {
@@ -323,6 +348,10 @@ std::string Obj::stringify_type() const {
 
   else if (is_number()) {
     return "number";
+  }
+
+  else if (is_char()) {
+    return "char";
   }
 
   else if (is_symbol()) {
