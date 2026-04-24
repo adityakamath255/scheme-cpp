@@ -21,7 +21,7 @@ Ctx::Ctx():
   sym_else {intern("else")},
   sym_define_macro {intern("define-macro")}
 {
-  global_env = alloc<Env>(nullptr);
+  global_env = alloc<GlobalEnv>();
 }
 
 Ctx::~Ctx() {

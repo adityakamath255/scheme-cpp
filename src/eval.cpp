@@ -345,7 +345,7 @@ static EvalResult eval_let(Obj rest, Env *env, Ctx *ctx, bool sequential) {
   check_arity(rest, sequential ? "let*" : "let", 2, SIZE_MAX);
   Obj bindings = rest.car();
   Obj body_list = rest.cdr();
-  Env *new_env = ctx->alloc<Env>(env);
+  Env *new_env = ctx->alloc<LocalEnv>(env);
 
   while (bindings.is_cons()) {
     Obj binding = bindings.car();
@@ -448,7 +448,7 @@ static EvalResult eval_apply(Obj head, Obj rest, Env *env, Ctx *ctx) {
 
   if (proc.is_procedure()) {
     Procedure *p = proc.as_procedure();
-    Env *new_env = ctx->alloc<Env>(p->env);
+    Env *new_env = ctx->alloc<LocalEnv>(p->env);
     bind_args(new_env, p->params, args, p->variadic, ctx);
     return TailCall{p->body, new_env};
   }
@@ -542,7 +542,7 @@ static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
           arg_list = arg_list.cdr();
         }
 
-        Env *macro_env = ctx->alloc<Env>(p->env);
+        Env *macro_env = ctx->alloc<LocalEnv>(p->env);
         bind_args(macro_env, p->params, raw_args, p->variadic, ctx);
         Obj expanded = eval(p->body, macro_env, ctx);
         return TailCall{expanded, env};

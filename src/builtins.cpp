@@ -776,7 +776,7 @@ static Obj builtin_apply(const std::vector<Obj> &args, Ctx *ctx) {
 
   else {
     Procedure *p = proc.as_procedure();
-    Env *call_env = ctx->alloc<Env>(p->env);
+    Env *call_env = ctx->alloc<LocalEnv>(p->env);
     bind_args(call_env, p->params, call_args, p->variadic, ctx);
     return eval(p->body, call_env, ctx);
   }

@@ -1,111 +1,75 @@
 #include "env.hpp"
-#include <unordered_map>
+#include <optional>
 
-// global envs (parent == nullptr) use hashmaps for bindings,
-// local envs (parent != nullptr) use flat vectors instead
+GlobalEnv::GlobalEnv(): bindings {} {}
 
-struct Env::Bindings {
-  using VecBindings = std::vector<std::pair<Symbol, Obj>>;
-  using MapBindings = std::unordered_map<Symbol, Obj>;
-  using Value = std::variant<VecBindings, MapBindings>;
+GlobalEnv::~GlobalEnv() = default;
 
-  Value data;
-
-  Bindings(bool map) {
-    if (map) {
-      data = MapBindings{};
-    }
-    else {
-      data = VecBindings{};
-    }
+std::optional<Obj> GlobalEnv::lookup(Symbol sym) const {
+  auto it = bindings.find(sym);
+  if (it != bindings.end()) {
+    return it->second;
   }
-
-  bool is_vec() const {
-    return std::holds_alternative<VecBindings>(data);
-  }
-
-  bool is_map() const {
-    return std::holds_alternative<MapBindings>(data);
-  }
-
-  VecBindings &as_vec() { return std::get<VecBindings>(data); }
-  const VecBindings &as_vec() const { return std::get<VecBindings>(data); }
-
-  MapBindings &as_map() { return std::get<MapBindings>(data); }
-  const MapBindings &as_map() const { return std::get<MapBindings>(data); }
-};
-
-Env::Env(Env *parent):
-  bindings {std::make_unique<Bindings>(parent == nullptr)},
-  parent {parent}
-{}
-
-Env::~Env() = default;
-
-std::optional<Obj> Env::lookup(Symbol sym) const {
-  if (bindings->is_map()) {
-    auto &map = bindings->as_map();
-    auto it = map.find(sym);
-    if (it != map.end()) {
-      return it->second;
-    }
-  } 
   else {
-    for (const auto &[k, v] : bindings->as_vec()) {
-      if (k == sym) return v;
-    }
-  }
-  return parent ? parent->lookup(sym) : std::nullopt;
-}
-
-void Env::define(Symbol sym, Obj obj) {
-  if (bindings->is_map()) {
-    bindings->as_map().insert_or_assign(sym, obj);
-  } 
-  else {
-    bindings->as_vec().emplace_back(sym, obj);
+    return std::nullopt;
   }
 }
 
-bool Env::set(Symbol sym, Obj obj) {
-  if (bindings->is_map()) {
-    auto &map = bindings->as_map();
-    auto it = map.find(sym);
-    if (it != map.end()) {
-      it->second = obj;
-      return true;
-    }
-  } 
-  else {
-    for (auto &[k, v] : bindings->as_vec()) {
-      if (k == sym) {
-        v = obj;
-        return true;
-      }
-    }
-  }
-  return parent ? parent->set(sym, obj) : false;
+void GlobalEnv::define(Symbol sym, Obj obj) {
+  bindings.insert_or_assign(sym, obj);
 }
 
-void Env::trace(std::vector<HeapEntity *> *worklist) const {
-  auto trace_obj = [&](const Obj &obj) {
+bool GlobalEnv::set(Symbol sym, Obj obj) {
+  auto it = bindings.find(sym);
+  if (it != bindings.end()) {
+    it->second = obj;
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
+void GlobalEnv::trace(std::vector<HeapEntity *> *worklist) const {
+  for (const auto &[_, obj] : bindings) {
     if (auto entity = obj.heap_entity()) {
       worklist->push_back(*entity);
     }
-  };
+  }
+}
 
-  if (bindings->is_map()) {
-    for (const auto &[_, obj] : bindings->as_map()) {
-      trace_obj(obj);
-    }
-  } 
-  else {
-    for (const auto &[_, obj] : bindings->as_vec()) {
-      trace_obj(obj);
+LocalEnv::LocalEnv(Env *parent): bindings {}, parent {parent} {}
+
+LocalEnv::~LocalEnv() = default;
+
+std::optional<Obj> LocalEnv::lookup(Symbol sym) const {
+  for (const auto &[k, v] : bindings) {
+    if (k == sym) {
+      return v;
     }
   }
+  return parent->lookup(sym);
+}
 
-  if (parent) {
-    worklist->push_back(parent);
+void LocalEnv::define(Symbol sym, Obj obj) {
+  bindings.emplace_back(sym, obj);
+}
+
+bool LocalEnv::set(Symbol sym, Obj obj) {
+  for (auto &[k, v] : bindings) {
+    if (k == sym) {
+      v = obj;
+      return true;
+    }
   }
+  return parent->set(sym, obj);
+}
+
+void LocalEnv::trace(std::vector<HeapEntity *> *worklist) const {
+  for (const auto &[_, obj] : bindings) {
+    if (auto entity = obj.heap_entity()) {
+      worklist->push_back(*entity);
+    }
+  }
+  worklist->push_back(parent);
 }
