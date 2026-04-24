@@ -28,6 +28,10 @@ Obj::Obj(Builtin *data): data {data} {}
 Obj::Obj(Null data): data {data} {}
 Obj::Obj(Void data): data {data} {}
 
+Type Obj::get_type() const {
+  return static_cast<Type>(data.index());
+}
+
 bool Obj::is_bool() const {
   return std::holds_alternative<bool>(data);
 }
@@ -109,28 +113,13 @@ Builtin *Obj::as_builtin() const {
 }
 
 std::optional<HeapEntity *> Obj::heap_entity() const {
-  if (is_string()) {
-    return as_string();
-  }
-
-  else if (is_cons()) {
-    return as_cons();
-  }
-
-  else if (is_vector()) {
-    return as_vector();
-  }
-
-  else if (is_procedure()) {
-    return as_procedure();
-  }
-
-  else if (is_builtin()) {
-    return as_builtin();
-  }
-
-  else {
-    return std::nullopt;
+  switch (get_type()) {
+    case Type::String: return as_string();
+    case Type::Cons: return as_cons();
+    case Type::Vector: return as_vector();
+    case Type::Procedure: return as_procedure();
+    case Type::Builtin: return as_builtin();
+    default: return std::nullopt;
   }
 }
 
@@ -151,239 +140,183 @@ bool Obj::equals(Obj other) const {
     return false;
   }
 
-  else if (is_null() || is_void()) {
-    return true;
-  }
+  switch (get_type()) {
+    case Type::Bool: return as_bool() == other.as_bool();
+    case Type::Number: return as_number() == other.as_number();
+    case Type::Char: return as_char() == other.as_char();
+    case Type::Symbol: return as_symbol() == other.as_symbol();
+    case Type::Procedure: return as_procedure() == other.as_procedure();
+    case Type::Builtin: return as_builtin() == other.as_builtin();
 
-  else if (is_bool()) {
-    return as_bool() == other.as_bool();
-  }
+    case Type::String: return as_string()->data == other.as_string()->data;
 
-  else if (is_number()) {
-    return as_number() == other.as_number();
-  }
+    case Type::Null: case Type::Void: return true;
 
-  else if (is_char()) {
-    return as_char() == other.as_char();
-  }
-
-  else if (is_symbol()) {
-    return as_symbol() == other.as_symbol();
-  }
-
-  else if (is_procedure()) {
-    return as_procedure() == other.as_procedure();
-  }
-
-  else if (is_builtin()) {
-    return as_builtin() == other.as_builtin();
-  }
-
-  else if (is_string()) {
-    return as_string()->data == other.as_string()->data;
-  }
-
-  else if (is_cons()) {
-    auto curr_0 = *this;
-    auto curr_1 = other;
-    while (true) {
-      if (!curr_0.car().equals(curr_1.car())) {
-        return false;
-      }
-      else if (!curr_0.cdr().is_cons() && !curr_1.cdr().is_cons()) {
-        return curr_0.cdr().equals(curr_1.cdr());
-      }
-      else if (curr_0.cdr().is_cons() && curr_1.cdr().is_cons()) {
-        curr_0 = curr_0.cdr();
-        curr_1 = curr_1.cdr();
-      }
-      else {
-        return false;
-      }
-    }
-  }
-
-  else if (is_vector()) {
-    const std::vector<Obj> &vec_0 = as_vector()->data;
-    const std::vector<Obj> &vec_1 = other.as_vector()->data;
-
-    if (vec_0.size() != vec_1.size()) {
-      return false;
-    }
-    else {
-      for (size_t i = 0; i < vec_0.size(); i += 1) {
-        if (!vec_0[i].equals(vec_1[i])) {
+    case Type::Cons: {
+      auto curr_0 = *this;
+      auto curr_1 = other;
+      while (true) {
+        if (!curr_0.car().equals(curr_1.car())) {
+          return false;
+        }
+        else if (!curr_0.cdr().is_cons() && !curr_1.cdr().is_cons()) {
+          return curr_0.cdr().equals(curr_1.cdr());
+        }
+        else if (curr_0.cdr().is_cons() && curr_1.cdr().is_cons()) {
+          curr_0 = curr_0.cdr();
+          curr_1 = curr_1.cdr();
+        }
+        else {
           return false;
         }
       }
-      return true;
     }
-  }
 
-  else {
-    return false;
+    case Type::Vector: {
+      const std::vector<Obj> &vec_0 = as_vector()->data;
+      const std::vector<Obj> &vec_1 = other.as_vector()->data;
+
+      if (vec_0.size() != vec_1.size()) {
+        return false;
+      }
+      else {
+        for (size_t i = 0; i < vec_0.size(); i += 1) {
+          if (!vec_0[i].equals(vec_1[i])) {
+            return false;
+          }
+        }
+        return true;
+      }
+    }
+
+    default:
+      return false;
   }
 }
 
 std::string Obj::stringify(bool quote) const {
-  if (is_bool()) {
-    return as_bool() ? "#t" : "#f";
-  }
+  switch (get_type()) {
+    case Type::Bool:
+      return as_bool() ? "#t" : "#f";
 
-  else if (is_number()) {
-    return std::format("{}", as_number());
-  }
+    case Type::Number:
+      return std::format("{}", as_number());
 
-  else if (is_char()) {
-    char c = as_char();
-    switch (c) {
-      case ' ': return "#\\space";
-      case '\n': return "#\\newline";
-      case '\t': return "#\\tab";
-      case '\r': return "#\\return";
-      default: return std::string("#\\") + c;
+    case Type::Char: {
+      char c = as_char();
+      switch (c) {
+        case ' ': return "#\\space";
+        case '\n': return "#\\newline";
+        case '\t': return "#\\tab";
+        case '\r': return "#\\return";
+        default: return std::string("#\\") + c;
+      }
     }
-  }
 
-  else if (is_symbol()) {
-    return as_symbol().get_name();
-  }
+    case Type::Symbol:
+      return as_symbol().get_name();
 
-  else if (is_string()) {
-    if (!quote) {
-      return as_string()->data;
-    }
-    else {
-      std::string res = "\"";
-      for (char c : as_string()->data) {
-        switch (c) {
-          case '"': res += "\\\""; break;
-          case '\\': res += "\\\\"; break;
-          case '\n': res += "\\n"; break;
-          case '\t': res += "\\t"; break;
-          default: res += c; break;
+    case Type::String:
+      if (!quote) {
+        return as_string()->data;
+      }
+      else {
+        std::string res = "\"";
+        for (char c : as_string()->data) {
+          switch (c) {
+            case '"': res += "\\\""; break;
+            case '\\': res += "\\\\"; break;
+            case '\n': res += "\\n"; break;
+            case '\t': res += "\\t"; break;
+            default: res += c; break;
+          }
         }
+        res += '"';
+        return res;
       }
-      res += '"';
-      return res;
-    }
-  }
 
-  else if (is_cons()) {
-    std::ostringstream res;
-    res << "(" << car().stringify(quote);
+    case Type::Cons: {
+      std::ostringstream res;
+      res << "(" << car().stringify(quote);
 
-    Obj curr = cdr();
+      Obj curr = cdr();
 
-    while (curr.is_cons()) {
-      res << " " << curr.car().stringify(quote);
-      curr = curr.cdr();
-    }
-
-    if (!curr.is_null()) {
-      res << " . " << curr.stringify(quote);
-    }
-
-    res << ")";
-
-    return res.str();
-  }
-
-  else if (is_vector()) {
-    std::ostringstream res;
-    res << "#(";
-    const std::vector<Obj> &data = as_vector()->data;
-    
-    for (size_t i = 0; i < data.size(); i += 1) {
-      if (i > 0) {
-        res << " ";
+      while (curr.is_cons()) {
+        res << " " << curr.car().stringify(quote);
+        curr = curr.cdr();
       }
-      res << data[i].stringify(quote);
+
+      if (!curr.is_null()) {
+        res << " . " << curr.stringify(quote);
+      }
+
+      res << ")";
+
+      return res.str();
     }
 
-    res << ")";
+    case Type::Vector: {
+      std::ostringstream res;
+      res << "#(";
+      const std::vector<Obj> &data = as_vector()->data;
+      
+      for (size_t i = 0; i < data.size(); i += 1) {
+        if (i > 0) {
+          res << " ";
+        }
+        res << data[i].stringify(quote);
+      }
 
-    return res.str();
-  }
+      res << ")";
 
-  else if (is_procedure()) {
-    if (as_procedure()->macro) {
-      return std::format(
-        "<macro at {}>",
-        static_cast<const void *>(as_procedure())
-      );
+      return res.str();
     }
-    else {
+
+    case Type::Procedure:
+      if (as_procedure()->macro) {
+        return std::format(
+          "<macro at {}>",
+          static_cast<const void *>(as_procedure())
+        );
+      }
+      else {
+        return std::format(
+          "<procedure at {}>",
+          static_cast<const void *>(as_procedure())
+        );
+      }
+
+    case Type::Builtin:
       return std::format(
         "<procedure at {}>",
-        static_cast<const void *>(as_procedure())
+        static_cast<const void *>(as_builtin())
       );
-    }
-  }
 
-  else if (is_builtin()) {
-    return std::format(
-      "<procedure at {}>",
-      static_cast<const void *>(as_builtin())
-    );
-  }
+    case Type::Null:
+      return "()";
 
-  else if (is_null()) {
-    return "()";
-  }
-  
-  else if (is_void()) {
-    return "#<void>";
-  }
-
-  else {
-    return "???";
+    case Type::Void:
+      return "#<void>";
+      
+    default:
+      return "???";
   }
 }
 
 std::string Obj::stringify_type() const {
-  if (is_bool()) {
-    return "boolean";
-  }
-
-  else if (is_number()) {
-    return "number";
-  }
-
-  else if (is_char()) {
-    return "char";
-  }
-
-  else if (is_symbol()) {
-    return "symbol";
-  }
-
-  else if (is_string()) {
-    return "string";
-  }
-
-  else if (is_cons()) {
-    return "cons";
-  }
-
-  else if (is_vector()) {
-    return "vector";
-  }
-
-  else if (is_procedure() || is_builtin()) {
-    return "procedure";
-  }
-
-  else if (is_null()) {
-    return "null";
-  }
-
-  else if (is_void()) {
-    return "void";
-  }
-  
-  else {
-    return "???";
+  switch (get_type()) {
+    case Type::Bool: return "boolean";
+    case Type::Number: return "number";
+    case Type::Char: return "char";
+    case Type::Symbol: return "symbol";
+    case Type::String: return "string";
+    case Type::Cons: return "cons";
+    case Type::Vector: return "vector";
+    case Type::Procedure:
+    case Type::Builtin: return "procedure";
+    case Type::Null: return "null";
+    case Type::Void: return "void";
+    default: return "???";
   }
 }
 
@@ -418,8 +351,6 @@ bool Obj::is_list() const {
 
 String::String(std::string data): data {std::move(data)} {}
 
-void String::trace(std::vector<HeapEntity *> *) const {}
-
 Cons::Cons(Obj car, Obj cdr): car {car}, cdr {cdr} {}
 
 void Cons::trace(std::vector<HeapEntity *> *worklist) const {
@@ -442,8 +373,6 @@ void Vector::trace(std::vector<HeapEntity *> *worklist) const {
 }
 
 Builtin::Builtin(Builtin::Fn fn): fn {fn} {}
-
-void Builtin::trace(std::vector<HeapEntity *> *) const {}
 
 Procedure::Procedure(
   std::vector<Symbol> params,

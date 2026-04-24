@@ -320,22 +320,22 @@ static Obj builtin_eq(const std::vector<Obj> &args, Ctx *) {
   if (!a.same_type(b)) {
     return false;
   }
-  else if (a.is_cons()) {
-    return a.as_cons() == b.as_cons();
+  else {
+    switch (a.get_type()) {
+      case Type::Bool: return a.as_bool() == b.as_bool();
+      case Type::Number: return a.as_number() == b.as_number();
+      case Type::Char: return a.as_char() == b.as_char();
+      case Type::Symbol: return a.as_symbol() == b.as_symbol();
+      case Type::String: return a.as_string() == b.as_string();
+      case Type::Cons: return a.as_cons() == b.as_cons();
+      case Type::Vector: return a.as_vector() == b.as_vector();
+      case Type::Procedure: return a.as_procedure() == b.as_procedure();
+      case Type::Builtin: return a.as_builtin() == b.as_builtin();
+      case Type::Null:
+      case Type::Void: return true;
+      default: return false;
+    }
   }
-  else if (a.is_string()) {
-    return a.as_string() == b.as_string();
-  }
-  else if (a.is_procedure()) {
-    return a.as_procedure() == b.as_procedure();
-  }
-  else if (a.is_builtin()) {
-    return a.as_builtin() == b.as_builtin();
-  }
-  else if (a.is_vector()) {
-    return a.as_vector() == b.as_vector();
-  }
-  return a.equals(b);
 }
 
 static Obj builtin_equal(const std::vector<Obj> &args, Ctx *) {

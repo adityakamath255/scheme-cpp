@@ -27,6 +27,20 @@ using Value = std::variant<
   Void
 >;
 
+enum class Type : size_t {
+  Bool = 0,
+  Number,
+  Char,
+  Symbol,
+  String,
+  Cons,
+  Vector,
+  Procedure,
+  Builtin,
+  Null,
+  Void
+};
+
 class Obj;
 
 class Env;
@@ -62,6 +76,8 @@ public:
   Obj(Builtin *);
   Obj(Null);
   Obj(Void);
+
+  Type get_type() const;
 
   bool is_bool() const;
   bool is_number() const;
@@ -110,7 +126,7 @@ struct ListProfile {
 };
 
 struct HeapEntity {
-  virtual void trace(std::vector<HeapEntity *> *worklist) const = 0;
+  virtual void trace(std::vector<HeapEntity *> *) const {}
   virtual ~HeapEntity() = default;
 };
 
@@ -118,8 +134,6 @@ struct String : HeapEntity {
   std::string data;
 
   String(std::string data);
-
-  void trace(std::vector<HeapEntity *> *) const override;
 };
 
 struct Cons : HeapEntity {
@@ -144,8 +158,6 @@ struct Builtin : HeapEntity {
   Fn fn;
 
   Builtin(Fn fn);
-
-  void trace(std::vector<HeapEntity *> *) const override;
 };
 
 struct Procedure : HeapEntity {
