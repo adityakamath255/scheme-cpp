@@ -101,7 +101,7 @@ int main(int argc, char *argv[]) {
   }
 
   Ctx ctx;
-  Env *env = ctx.get_global_env();
+  Env *env = ctx.global_env;
   install_builtins(env, &ctx);
   run(preamble, env, &ctx);
 

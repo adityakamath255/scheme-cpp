@@ -4,6 +4,7 @@ Ctx::Ctx():
   live {},
   interned {},
   gc_threshold {1024},
+  global_env {alloc<GlobalEnv>()},
   sym_quote {intern("quote")},
   sym_if {intern("if")},
   sym_define {intern("define")},
@@ -20,9 +21,7 @@ Ctx::Ctx():
   sym_unquote_splicing {intern("unquote-splicing")},
   sym_else {intern("else")},
   sym_define_macro {intern("define-macro")}
-{
-  global_env = alloc<GlobalEnv>();
-}
+{}
 
 Ctx::~Ctx() {
   for (auto *entity : live) {
@@ -33,10 +32,6 @@ Ctx::~Ctx() {
 Symbol Ctx::intern(std::string_view name) {
   auto [it, _] = interned.insert(std::string(name));
   return Symbol{&*it};
-}
-
-Env *Ctx::get_global_env() {
-  return global_env;
 }
 
 bool Ctx::should_recycle() const {

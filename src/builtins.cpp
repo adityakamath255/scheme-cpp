@@ -701,7 +701,7 @@ static Obj builtin_error(const std::vector<Obj> &args, Ctx *) {
 
 static Obj builtin_eval(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "eval", 1, 1);
-  return eval(args[0], ctx->get_global_env(), ctx);
+  return eval(args[0], ctx->global_env, ctx);
 }
 
 static Obj builtin_load(const std::vector<Obj> &args, Ctx *ctx) {
@@ -716,7 +716,7 @@ static Obj builtin_load(const std::vector<Obj> &args, Ctx *ctx) {
   buf << file.rdbuf();
   std::string source = buf.str();
 
-  Env *env = ctx->get_global_env();
+  Env *env = ctx->global_env;
   while (true) {
     auto result = lex(source);
     if (!result || result->tokens.empty()) break;

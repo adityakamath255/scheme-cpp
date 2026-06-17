@@ -18,9 +18,11 @@ The binary is `build/scheme`.
 
 ```bash
 ./build/scheme              # start the REPL
-./build/scheme file.scm     # run a file, then enter the REPL
-./build/scheme -b file.scm  # run a file and exit
+./build/scheme file.scm     # run a file and exit
+./build/scheme -i file.scm  # run a file, then enter the REPL
 ```
+
+With no file on a terminal it starts the REPL; piped on stdin (`echo '(+ 1 2)' | ./build/scheme`) it runs the input and exits. `-i` (or `--interactive`) keeps the REPL open after a file.
 
 The REPL supports multi-line input (brackets are tracked across lines), line editing, and history via [replxx](https://github.com/AmokHuginnsson/replxx). Ctrl+D exits. Ctrl+C clears the current input.
 
@@ -28,9 +30,23 @@ The REPL supports multi-line input (brackets are tracked across lines), line edi
 
 ### Special forms
 
-`define`, `lambda`, `if`, `cond`, `let`, `let*`, `set!`, `begin`, `and`, `or`, `quote`, `quasiquote`, `unquote`
+`define`, `lambda`, `if`, `cond`, `let`, `let*`, `set!`, `begin`, `and`, `or`, `quote`, `quasiquote`, `unquote`, `unquote-splicing`, `define-macro`
 
-`and` and `or` return the deciding value, not a boolean: `(and 1 2 3)` returns `3`, `(or #f 42)` returns `42`. `cond` clauses with no body return the test value: `(cond (5))` returns `5`. Quasiquote works inside vectors: `` `#(1 ,x 3) ``.
+`and` and `or` return the deciding value, not a boolean: `(and 1 2 3)` returns `3`, `(or #f 42)` returns `42`. `cond` clauses with no body return the test value: `(cond (5))` returns `5`. Quasiquote works inside vectors: `` `#(1 ,x 3) ``, and `unquote-splicing` (`,@`) splices a list into the surrounding form: `` `(1 ,@'(2 3) 4) `` returns `(1 2 3 4)`.
+
+### Macros
+
+`define-macro` defines non-hygienic, Lisp-style macros (as in Common Lisp's `defmacro`, not `syntax-rules`). The macro receives its arguments unevaluated, its body runs to produce an expansion, and that expansion is evaluated in the caller's environment. Quasiquote is the usual way to build the expansion:
+
+```scheme
+(define-macro (when test . body)
+  `(if ,test (begin ,@body) (void)))
+
+(define-macro (swap! a b)
+  `(let ((tmp ,a)) (set! ,a ,b) (set! ,b tmp)))
+```
+
+A symbol target binds an existing procedure as a macro: `(define-macro my-if (lambda (c t e) ...))`. Expansion is not hygienic, so identifiers introduced by the expansion (like `tmp` above) can capture or be captured by names at the use site.
 
 ### Built-in procedures
 
@@ -112,8 +128,7 @@ The interpreter is 9 source files:
 
 ## Limitations
 
-- No macros (`define-syntax`, `syntax-rules`).
+- No hygienic macros (`define-syntax`, `syntax-rules`). `define-macro` is non-hygienic.
 - No continuations (`call/cc`).
 - Numbers are IEEE 754 doubles only. No exact integers, rationals, or bignums. Integers above 2^53 lose precision.
 - No ports. I/O is stdin/stdout only.
-- `unquote-splicing` (`,@`) is parsed but not evaluated.
