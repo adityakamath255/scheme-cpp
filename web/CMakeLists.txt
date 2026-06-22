@@ -21,4 +21,5 @@ target_link_options(scheme PRIVATE
   -sEXPORT_NAME=createScheme
   -sENVIRONMENT=web
   -sALLOW_MEMORY_GROWTH=1
+  -sSTACK_SIZE=8MB
   -fexceptions)

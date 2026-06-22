@@ -30,7 +30,7 @@ The REPL supports multi-line input (brackets are tracked across lines), line edi
 
 The same interpreter runs in the browser, compiled to WebAssembly: <https://adityakamath255.github.io/scheme-cpp/>
 
-The `src/` sources compile to wasm via Embind. `web/main.cpp` exposes a `Session` whose single `step` method reads and evaluates one form, and `web/index.html` is a self-contained REPL page. Both REPLs share the same read/eval driver, so multi-line input and error reporting behave the same in the browser as in the terminal. A GitHub Actions workflow (`.github/workflows/pages.yml`) builds with emscripten and deploys to GitHub Pages on every push to `main`.
+The `src/` sources compile to wasm via Embind. `web/main.cpp` exposes a `Session` whose `step` method reads and evaluates one form at a time, sharing the same read/eval driver as the terminal. `web/index.html` is a two-pane playground: a code editor on the left, results on the right, run with the button or Ctrl/Cmd+Enter. The program persists in `localStorage`, the split between the panes is draggable, "Copy link" encodes the program into a shareable URL, and each run reports its evaluation time. A session keeps its definitions across runs; "Reset session" starts fresh. A GitHub Actions workflow (`.github/workflows/pages.yml`) builds with emscripten and deploys to GitHub Pages on every push to `main`.
 
 Building the wasm locally needs the [emscripten SDK](https://emscripten.org):
 
@@ -146,3 +146,4 @@ The interpreter is 10 source files:
 - No continuations (`call/cc`).
 - Numbers are IEEE 754 doubles only. No exact integers, rationals, or bignums. Integers above 2^53 lose precision.
 - No ports. I/O is stdin/stdout only.
+- Deep non-tail recursion is bounded by the C stack: the native binary handles a few thousand frames, and in the browser the wasm build (8MB stack) is capped lower by the JavaScript engine's own call-stack limit. Overflowing it raises a catchable error rather than crashing the session. Tail recursion is unaffected and runs in constant space.
