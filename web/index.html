@@ -71,12 +71,29 @@ function append(text, cls) {
   output.scrollTop = output.scrollHeight;
 }
 
+function feed() {
+  while (buffer.trim()) {
+    let r;
+    try { r = session.step(buffer); }
+    catch (ex) {
+      append(ex?.message ?? String(ex), "err");
+      buffer = "";
+      break;
+    }
+    if (r.kind === "incomplete") { marker.textContent = ".."; return; }
+    if (r.kind === "exhausted") { buffer = ""; break; }
+    if (r.value !== undefined) append(r.value, "res");
+    buffer = r.rest;
+  }
+  marker.textContent = ">";
+}
+
 let session;
 createScheme({ print: t => append(t), printErr: t => append(t, "err") })
   .then(mod => {
     session = new mod.Session();
     output.textContent = "";
-    append("Scheme - a C++ interpreter in WebAssembly. Try (+ 1 2) or (define (sq x) (* x x)).");
+    append("Try (+ 1 2) or (define (sq x) (* x x)).");
     line.disabled = false;
     line.focus();
   });
@@ -88,20 +105,9 @@ line.addEventListener("keydown", e => {
     const src = line.value;
     line.value = "";
     append((buffer ? ".. " : "> ") + src, "in");
-    const piece = buffer ? buffer + "\n" + src : src;
-    if (!piece.trim()) { buffer = ""; marker.textContent = ">"; return; }
-    if (!session.complete(piece)) {
-      buffer = piece;
-      marker.textContent = "..";
-      return;
-    }
-    buffer = "";
-    marker.textContent = ">";
-    history.push(piece);
-    cursor = history.length;
-    const r = session.eval(piece);
-    if (!r.ok) append(r.value, "err");
-    else if (r.value) append(r.value, "res");
+    if (src.trim()) { history.push(src); cursor = history.length; }
+    buffer = buffer ? buffer + "\n" + src : src;
+    feed();
   }
   else if (e.key === "ArrowUp") {
     if (cursor > 0) line.value = history[--cursor];

@@ -784,7 +784,9 @@ static Obj builtin_apply(const std::vector<Obj> &args, Ctx *ctx) {
 
 // --- public ---
 
-void install_builtins(Env *env, Ctx *ctx) {
+void install_builtins(Ctx *ctx) {
+  Env *env = ctx->global_env;
+
   // arithmetic
   install(env, ctx, "+", builtin_add);
   install(env, ctx, "-", builtin_sub);

@@ -1,77 +1,50 @@
 #include "ctx.hpp"
 #include "builtins.hpp"
 #include "preamble.hpp"
-#include "lex.hpp"
-#include "parse.hpp"
-#include "eval.hpp"
+#include "driver.hpp"
 #include <emscripten/bind.h>
+#include <emscripten/val.h>
+#include <emscripten.h>
 #include <string>
-#include <string_view>
-
-struct Outcome {
-  bool ok;
-  std::string value; // repr of the result when ok, else the error message
-};
 
 class Session {
   Ctx ctx;
 
 public:
   Session() {
-    install_builtins(ctx.global_env, &ctx);
-    evaluate(std::string(preamble));
+    install_builtins(&ctx);
+    run_all(preamble, &ctx);
   }
 
-  Outcome evaluate(const std::string &source) {
-    std::string_view src = source;
-    Obj last = Obj(Void{});
+  emscripten::val step(const std::string &source) {
+    using emscripten::val;
+    auto tagged = [](const char *kind) {
+      val o = val::object();
+      o.set("kind", std::string(kind));
+      return o;
+    };
     try {
-      while (true) {
-        auto result = lex(src);
-        if (!result || result->tokens.empty()) {
-          break;
+      ReadEval r = read_eval(source, &ctx);
+      if (auto *e = std::get_if<Evaluated>(&r)) {
+        val o = tagged("value");
+        o.set("rest", std::string(e->rest));
+        if (!e->value.is_void()) {
+          o.set("value", e->value.stringify(true));
         }
-        Obj expr = parse(result->tokens, &ctx);
-        last = eval(expr, ctx.global_env, &ctx);
-        src = result->rest;
-        if (ctx.should_recycle()) {
-          ctx.recycle();
-        }
+        return o;
       }
+      return tagged(std::holds_alternative<Incomplete>(r) ? "incomplete"
+                                                          : "exhausted");
     }
     catch (const std::exception &e) {
-      return {false, e.what()};
-    }
-    return {true, last.is_void() ? "" : last.stringify(true)};
-  }
-
-  bool complete(const std::string &source) {
-    std::string_view src = source;
-    try {
-      while (true) {
-        auto result = lex(src);
-        if (!result) {
-          return false;
-        }
-        if (result->tokens.empty()) {
-          return true;
-        }
-        src = result->rest;
-      }
-    }
-    catch (const std::exception &) {
-      return true;
+      EM_ASM({ throw new Error(UTF8ToString($0)); }, e.what());
+      return val::undefined();
     }
   }
 };
 
 EMSCRIPTEN_BINDINGS(scheme) {
-  emscripten::value_object<Outcome>("Outcome")
-    .field("ok", &Outcome::ok)
-    .field("value", &Outcome::value);
-
   emscripten::class_<Session>("Session")
     .constructor<>()
-    .function("eval", &Session::evaluate)
-    .function("complete", &Session::complete);
+    .function("step", &Session::step);
 }

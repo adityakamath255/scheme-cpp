@@ -1,32 +1,14 @@
 #include "ctx.hpp"
 #include "builtins.hpp"
 #include "preamble.hpp"
-#include "lex.hpp"
-#include "parse.hpp"
-#include "eval.hpp"
+#include "driver.hpp"
 #include <replxx.hxx>
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <unistd.h>
 
-static void run(std::string_view source, Env *env, Ctx *ctx) {
-  while (true) {
-    auto result = lex(source);
-    if (!result || result->tokens.empty()) {
-      break;
-    }
-    Obj expr = parse(result->tokens, ctx);
-    eval(expr, env, ctx);
-    source = result->rest;
-
-    if (ctx->should_recycle()) {
-      ctx->recycle();
-    }
-  }
-}
-
-static void repl(Env *env, Ctx *ctx) {
+static void repl(Ctx *ctx) {
   replxx::Replxx rx;
   rx.set_max_history_size(1024);
   rx.set_word_break_characters(" \t\r\n()[]'\";");
@@ -41,21 +23,16 @@ static void repl(Env *env, Ctx *ctx) {
 
   while (true) {
     try {
-      auto result = lex(input);
-      if (result && !result->tokens.empty()) {
-        std::string rest(result->rest);
-        Obj expr = parse(result->tokens, ctx);
-        Obj val = eval(expr, env, ctx);
-        if (!val.is_void()) {
-          std::cout << val.stringify(true) << "\n";
+      ReadEval r = read_eval(input, ctx);
+      if (auto *e = std::get_if<Evaluated>(&r)) {
+        std::string rest(e->rest);
+        if (!e->value.is_void()) {
+          std::cout << e->value.stringify(true) << "\n";
         }
         input = rest;
-        if (ctx->should_recycle()) {
-          ctx->recycle();
-        }
         continue;
       }
-      if (result) {
+      if (std::holds_alternative<Exhausted>(r)) {
         input.clear();
       }
     }
@@ -101,9 +78,8 @@ int main(int argc, char *argv[]) {
   }
 
   Ctx ctx;
-  Env *env = ctx.global_env;
-  install_builtins(env, &ctx);
-  run(preamble, env, &ctx);
+  install_builtins(&ctx);
+  run_all(preamble, &ctx);
 
   if (filename) {
     std::ifstream file(*filename);
@@ -115,7 +91,7 @@ int main(int argc, char *argv[]) {
     buf << file.rdbuf();
 
     try {
-      run(buf.str(), env, &ctx);
+      run_all(buf.str(), &ctx);
     }
     catch (const std::exception &e) {
       std::cerr << "error: " << e.what() << "\n";
@@ -127,7 +103,7 @@ int main(int argc, char *argv[]) {
     buf << std::cin.rdbuf();
 
     try {
-      run(buf.str(), env, &ctx);
+      run_all(buf.str(), &ctx);
     }
     catch (const std::exception &e) {
       std::cerr << "error: " << e.what() << "\n";
@@ -137,6 +113,6 @@ int main(int argc, char *argv[]) {
 
   if (interactive || (!filename && isatty(STDIN_FILENO))) {
     std::cout << "Scheme - Ctrl+D to exit, Ctrl+C to clear\n\n";
-    repl(env, &ctx);
+    repl(&ctx);
   }
 }

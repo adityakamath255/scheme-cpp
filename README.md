@@ -26,6 +26,19 @@ With no file on a terminal it starts the REPL; piped on stdin (`echo '(+ 1 2)' |
 
 The REPL supports multi-line input (brackets are tracked across lines), line editing, and history via [replxx](https://github.com/AmokHuginnsson/replxx). Ctrl+D exits. Ctrl+C clears the current input.
 
+## Web
+
+The same interpreter runs in the browser, compiled to WebAssembly: <https://adityakamath255.github.io/scheme-cpp/>
+
+The `src/` sources compile to wasm via Embind. `web/main.cpp` exposes a `Session` whose single `step` method reads and evaluates one form, and `web/index.html` is a self-contained REPL page. Both REPLs share the same read/eval driver, so multi-line input and error reporting behave the same in the browser as in the terminal. A GitHub Actions workflow (`.github/workflows/pages.yml`) builds with emscripten and deploys to GitHub Pages on every push to `main`.
+
+Building the wasm locally needs the [emscripten SDK](https://emscripten.org):
+
+```bash
+emcmake cmake -S web -B web/build
+cmake --build web/build
+```
+
 ## What's implemented
 
 ### Special forms
@@ -114,9 +127,9 @@ Tests are written in Scheme using a small framework (`tests/framework.scm`) that
 
 ## Source layout
 
-The interpreter is 9 source files:
+The interpreter is 10 source files:
 
-- `lex.cpp` - tokenizer. Returns `nullopt` for incomplete input, which the REPL uses to detect multi-line expressions without a separate bracket checker.
+- `lex.cpp` - tokenizer. Returns `nullopt` for incomplete input, which `driver.cpp` turns into an `Incomplete` result so both the terminal and browser REPLs detect multi-line expressions without a separate bracket checker.
 - `parse.cpp` - recursive descent parser. Produces S-expressions (cons cells, symbols, literals), not an AST.
 - `types.cpp` - the `Obj` class wrapping `std::variant<bool, double, Symbol, String*, Cons*, Vector*, Procedure*, Builtin*, Null, Void>`. Provides type checks, accessors, structural equality, and printing.
 - `env.cpp` - lexical environments. An `Env` is a hash map from interned symbols to values, with a parent pointer.
@@ -124,7 +137,8 @@ The interpreter is 9 source files:
 - `eval.cpp` - evaluator. Dispatches special forms by symbol name, evaluates procedure calls, implements the tail call trampoline.
 - `builtins.cpp` - all built-in procedure implementations, registered as raw function pointers.
 - `preamble.cpp` - the standard library, stored as a string literal and evaluated at startup.
-- `main.cpp` - argument parsing, file execution, REPL loop.
+- `driver.cpp` - reads and evaluates one top-level form (`read_eval`) or a whole source (`run_all`). The GC-recycle step between forms lives here, and both the terminal REPL and the wasm front-end build on it.
+- `main.cpp` - argument parsing, file execution, and the replxx REPL loop.
 
 ## Limitations
 
