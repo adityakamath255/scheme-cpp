@@ -1,6 +1,6 @@
 [submodule "third_party/replxx"]
 	path = third_party/replxx
 	url = https://github.com/AmokHuginnsson/replxx.git
-[submodule "/home/xnsjskz/cs/creations/large/scheme-cpp/third_party/mimalloc"]
-	path = /home/xnsjskz/cs/creations/large/scheme-cpp/third_party/mimalloc
+[submodule "third_party/mimalloc"]
+	path = third_party/mimalloc
 	url = https://github.com/microsoft/mimalloc.git

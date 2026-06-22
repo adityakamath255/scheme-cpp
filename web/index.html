@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>scheme-cpp</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    background: #1a1b26;
+    color: #c0caf5;
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 10px 16px;
+    border-bottom: 1px solid #2a2e44;
+    color: #7aa2f7;
+  }
+  header a { color: #7aa2f7; }
+  #output {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .in { color: #9ece6a; }
+  .res { color: #c0caf5; }
+  .err { color: #f7768e; }
+  #prompt {
+    display: flex;
+    gap: 8px;
+    padding: 8px 16px;
+    border-top: 1px solid #2a2e44;
+  }
+  #prompt span { color: #9ece6a; }
+  #line {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font: inherit;
+    outline: none;
+  }
+</style>
+</head>
+<body>
+<header>scheme-cpp &middot; a Scheme interpreter in C++, compiled to WebAssembly &middot;
+  <a href="https://github.com/adityakamath255/scheme-cpp">source</a></header>
+<div id="output">loading&hellip;</div>
+<div id="prompt"><span id="marker">&gt;</span><input id="line" autofocus autocomplete="off" spellcheck="false" disabled></div>
+
+<script src="scheme.js"></script>
+<script>
+const output = document.getElementById("output");
+const line = document.getElementById("line");
+const marker = document.getElementById("marker");
+const history = [];
+let cursor = 0;
+let buffer = "";
+
+function append(text, cls) {
+  const div = document.createElement("div");
+  if (cls) div.className = cls;
+  div.textContent = text;
+  output.appendChild(div);
+  output.scrollTop = output.scrollHeight;
+}
+
+let session;
+createScheme({ print: t => append(t), printErr: t => append(t, "err") })
+  .then(mod => {
+    session = new mod.Session();
+    output.textContent = "";
+    append("Scheme - a C++ interpreter in WebAssembly. Try (+ 1 2) or (define (sq x) (* x x)).");
+    line.disabled = false;
+    line.focus();
+  });
+
+addEventListener("beforeunload", () => session && session.delete());
+
+line.addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    const src = line.value;
+    line.value = "";
+    append((buffer ? ".. " : "> ") + src, "in");
+    const piece = buffer ? buffer + "\n" + src : src;
+    if (!piece.trim()) { buffer = ""; marker.textContent = ">"; return; }
+    if (!session.complete(piece)) {
+      buffer = piece;
+      marker.textContent = "..";
+      return;
+    }
+    buffer = "";
+    marker.textContent = ">";
+    history.push(piece);
+    cursor = history.length;
+    const r = session.eval(piece);
+    if (!r.ok) append(r.value, "err");
+    else if (r.value) append(r.value, "res");
+  }
+  else if (e.key === "ArrowUp") {
+    if (cursor > 0) line.value = history[--cursor];
+    e.preventDefault();
+  }
+  else if (e.key === "ArrowDown") {
+    if (cursor < history.length - 1) line.value = history[++cursor];
+    else { cursor = history.length; line.value = ""; }
+    e.preventDefault();
+  }
+});
+</script>
+</body>
+</html>
