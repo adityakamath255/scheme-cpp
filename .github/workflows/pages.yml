@@ -23,6 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.1
       - name: Build wasm
         run: |
           emcmake cmake -S web -B web/build

@@ -7,22 +7,21 @@ A Scheme interpreter in C++20. Evaluates S-expressions directly, with tail call 
 Requires CMake 3.16+ and a C++20 compiler (GCC 12+, Clang 15+).
 
 ```bash
-mkdir -p build && cd build
-cmake ..
-make
+cmake -S cli -B cli/build
+cmake --build cli/build
 ```
 
-The binary is `build/scheme`.
+The binary is `cli/build/scheme`.
 
 ## Usage
 
 ```bash
-./build/scheme              # start the REPL
-./build/scheme file.scm     # run a file and exit
-./build/scheme -i file.scm  # run a file, then enter the REPL
+./cli/build/scheme              # start the REPL
+./cli/build/scheme file.scm     # run a file and exit
+./cli/build/scheme -i file.scm  # run a file, then enter the REPL
 ```
 
-With no file on a terminal it starts the REPL; piped on stdin (`echo '(+ 1 2)' | ./build/scheme`) it runs the input and exits. `-i` (or `--interactive`) keeps the REPL open after a file.
+With no file on a terminal it starts the REPL; piped on stdin (`echo '(+ 1 2)' | ./cli/build/scheme`) it runs the input and exits. `-i` (or `--interactive`) keeps the REPL open after a file.
 
 The REPL supports multi-line input (brackets are tracked across lines), line editing, and history via [replxx](https://github.com/AmokHuginnsson/replxx). Ctrl+D exits. Ctrl+C clears the current input.
 
@@ -127,7 +126,7 @@ Tests are written in Scheme using a small framework (`tests/framework.scm`) that
 
 ## Source layout
 
-The interpreter is 10 source files:
+The core interpreter is nine source files in `src/`:
 
 - `lex.cpp` - tokenizer. Returns `nullopt` for incomplete input, which `driver.cpp` turns into an `Incomplete` result so both the terminal and browser REPLs detect multi-line expressions without a separate bracket checker.
 - `parse.cpp` - recursive descent parser. Produces S-expressions (cons cells, symbols, literals), not an AST.
@@ -138,7 +137,10 @@ The interpreter is 10 source files:
 - `builtins.cpp` - all built-in procedure implementations, registered as raw function pointers.
 - `preamble.cpp` - the standard library, stored as a string literal and evaluated at startup.
 - `driver.cpp` - reads and evaluates one top-level form (`read_eval`) or a whole source (`run_all`). The GC-recycle step between forms lives here, and both the terminal REPL and the wasm front-end build on it.
-- `main.cpp` - argument parsing, file execution, and the replxx REPL loop.
+The two front-ends build on `driver.cpp`:
+
+- `cli/main.cpp` - argument parsing, file execution, and the replxx REPL loop.
+- `web/main.cpp` - exposes an Embind `Session` (see [Web](#web)), compiled to WebAssembly.
 
 ## Limitations
 
