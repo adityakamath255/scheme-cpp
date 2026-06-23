@@ -27,6 +27,11 @@ jobs:
         run: |
           emcmake cmake -S web -B web/build
           cmake --build web/build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Typecheck and compile app.ts
+        run: npx -y -p typescript@5.8 tsc -p web/tsconfig.json
       - name: Assemble site
         run: |
           mkdir -p site

@@ -2,3 +2,4 @@ build/
 context/
 .cache/
 web/dev.sh
+web/app.js

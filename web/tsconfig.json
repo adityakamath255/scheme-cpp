@@ -1,12 +1,10 @@
 {
   "compilerOptions": {
-    "allowJs": true,
-    "checkJs": true,
-    "noEmit": true,
     "strict": true,
     "target": "ES2020",
+    "module": "ES2020",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "types": []
   },
-  "include": ["app.js", "scheme.d.ts"]
+  "include": ["app.ts", "scheme.d.ts"]
 }
