@@ -1,7 +1,9 @@
 #include "eval.hpp"
 #include "ctx.hpp"
+
 #include <stdexcept>
 #include <format>
+#include <ranges>
 
 // --- internal types ---
 
@@ -47,12 +49,9 @@ static void check_arity(
 // --- helpers ---
 
 static std::vector<Obj> eval_args(Obj list, Env *env, Ctx *ctx) {
-  std::vector<Obj> res;
-  while (list.is_cons()) {
-    res.push_back(eval(list.car(), env, ctx));
-    list = list.cdr();
-  }
-  return res;
+  return ListView{list}
+    | std::views::transform([&](Obj arg) { return eval(arg, env, ctx); })
+    | std::ranges::to<std::vector>();
 }
 
 struct Params {
@@ -61,40 +60,36 @@ struct Params {
 };
 
 static Params extract_params(Obj formals) {
-  std::vector<Symbol> names;
-  bool variadic;
-
   // (lambda x body)
   if (formals.is_symbol()) {
-    names.push_back(formals.as_symbol());
-    variadic = true;
+    return {{formals.as_symbol()}, true};
   }
 
   // (lambda (a b) body) or (lambda (a . b) body)
   else {
-    while (formals.is_cons()) {
-      if (!formals.car().is_symbol()) {
+    ListView params{formals};
+    std::vector<Symbol> names;
+
+    for (Obj p : params) {
+      if (!p.is_symbol()) {
         throw std::runtime_error("parameter must be a symbol");
       }
-      names.push_back(formals.car().as_symbol());
-      formals = formals.cdr();
+      names.push_back(p.as_symbol());
     }
 
-    if (formals.is_null()) {
-      variadic = false;
-    }
+    Obj tail = params.tail();
 
-    else if (formals.is_symbol()) {
-      names.push_back(formals.as_symbol());
-      variadic = true;
+    if (tail.is_null()) {
+      return {std::move(names), false};
     }
-
+    else if (tail.is_symbol()) {
+      names.push_back(tail.as_symbol());
+      return {std::move(names), true};
+    }
     else {
       throw std::runtime_error("invalid parameter list");
     }
   }
-
-  return {names, variadic};
 }
 
 static Obj wrap_body(Obj body_list, Ctx *ctx) {
@@ -148,10 +143,7 @@ static Obj eval_quasiquote(Obj obj, Env *env, Ctx *ctx) {
         && elem.car().as_symbol() == ctx->sym_unquote_splicing
       ) {
         Obj spliced = eval(elem.cdr().car(), env, ctx);
-        while (spliced.is_cons()) {
-          elements.push_back(spliced.car());
-          spliced = spliced.cdr();
-        }
+        elements.append_range(ListView{spliced});
       }
       else {
         elements.push_back(eval_quasiquote(elem, env, ctx));
@@ -332,18 +324,17 @@ static EvalResult eval_let(Obj rest, Env *env, Ctx *ctx, LetKind kind) {
   Env *new_env = ctx->alloc<LocalEnv>(env);
 
   if (kind == LetKind::Rec) {
-    for (Obj b = bindings; b.is_cons(); b = b.cdr()) {
-      if (!b.car().car().is_symbol()) {
+    for (Obj binding : ListView{bindings}) {
+      if (!binding.car().is_symbol()) {
         throw std::runtime_error("letrec: binding name must be a symbol");
       }
-      new_env->define(b.car().car().as_symbol(), Void{});
+      new_env->define(binding.car().as_symbol(), Void{});
     }
   }
 
   Env *init_env = kind == LetKind::Plain ? env : new_env;
 
-  for (Obj b = bindings; b.is_cons(); b = b.cdr()) {
-    Obj binding = b.car();
+  for (Obj binding : ListView{bindings}) {
     if (!binding.car().is_symbol()) {
       throw std::runtime_error(
         std::string(name) + ": binding name must be a symbol"
@@ -370,8 +361,7 @@ static EvalResult eval_named_let(Obj rest, Env *env, Ctx *ctx) {
 
   std::vector<Symbol> params;
   std::vector<Obj> args;
-  for (Obj b = bindings; b.is_cons(); b = b.cdr()) {
-    Obj binding = b.car();
+  for (Obj binding : ListView{bindings}) {
     if (!binding.car().is_symbol()) {
       throw std::runtime_error("let: binding name must be a symbol");
     }
@@ -631,14 +621,7 @@ static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
         && macro_val->as_procedure()->macro
       ) {
         Procedure *p = macro_val->as_procedure();
-        std::vector<Obj> raw_args;
-        Obj arg_list = rest;
-
-        while (arg_list.is_cons()) {
-          raw_args.push_back(arg_list.car());
-          arg_list = arg_list.cdr();
-        }
-
+        std::vector<Obj> raw_args = std::ranges::to<std::vector>(ListView{rest});
         Env *macro_env = ctx->alloc<LocalEnv>(p->env);
         bind_args(macro_env, p->params, raw_args, p->variadic, ctx);
         Obj expanded = eval(p->body, macro_env, ctx);

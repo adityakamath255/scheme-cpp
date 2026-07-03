@@ -1,9 +1,11 @@
 #include "types.hpp"
 #include "env.hpp"
 
+#include <algorithm>
+#include <format>
+#include <ranges>
 #include <string>
 #include <sstream>
-#include <format>
 #include <type_traits>
 
 Symbol::Symbol(const std::string *ptr): ptr {ptr} {}
@@ -173,23 +175,10 @@ bool Obj::equals(Obj other) const {
     case Type::Null: case Type::Void: return true;
 
     case Type::Cons: {
-      auto curr_0 = *this;
-      auto curr_1 = other;
-      while (true) {
-        if (!curr_0.car().equals(curr_1.car())) {
-          return false;
-        }
-        else if (!curr_0.cdr().is_cons() && !curr_1.cdr().is_cons()) {
-          return curr_0.cdr().equals(curr_1.cdr());
-        }
-        else if (curr_0.cdr().is_cons() && curr_1.cdr().is_cons()) {
-          curr_0 = curr_0.cdr();
-          curr_1 = curr_1.cdr();
-        }
-        else {
-          return false;
-        }
-      }
+      ListView a{*this};
+      ListView b{other};
+      return std::ranges::equal(a, b, [](Obj x, Obj y) { return x.equals(y); })
+        && a.tail().equals(b.tail());
     }
 
     case Type::Vector: {
@@ -256,23 +245,18 @@ std::string Obj::stringify(bool quote) const {
       }
 
     case Type::Cons: {
-      std::ostringstream res;
-      res << "(" << car().stringify(quote);
+      ListView list{*this};
 
-      Obj curr = cdr();
+      std::string body = std::ranges::to<std::string>(
+        list
+        | std::views::transform([quote](Obj x) { return x.stringify(quote); })
+        | std::views::join_with(' ')
+      );
 
-      while (curr.is_cons()) {
-        res << " " << curr.car().stringify(quote);
-        curr = curr.cdr();
-      }
+      Obj tail = list.tail();
+      std::string dotted = tail.is_null() ? "" : " . " + tail.stringify(quote);
 
-      if (!curr.is_null()) {
-        res << " . " << curr.stringify(quote);
-      }
-
-      res << ")";
-
-      return res.str();
+      return "(" + body + dotted + ")";
     }
 
     case Type::Vector: {
@@ -346,6 +330,45 @@ Obj Obj::car() const {
 
 Obj Obj::cdr() const {
   return as_cons()->cdr;
+}
+
+ListView::ListView(Obj head): head {head} {}
+
+ListView::iterator::iterator(Obj cur): cur {cur} {}
+
+Obj ListView::iterator::operator*() const {
+  return cur.car();
+}
+
+ListView::iterator &ListView::iterator::operator++() {
+  cur = cur.cdr();
+  return *this;
+}
+
+ListView::iterator ListView::iterator::operator++(int) {
+  iterator tmp = *this;
+  ++*this;
+  return tmp;
+}
+
+bool ListView::iterator::operator==(std::default_sentinel_t) const {
+  return !cur.is_cons();
+}
+
+ListView::iterator ListView::begin() const {
+  return iterator {head};
+}
+
+std::default_sentinel_t ListView::end() const {
+  return {};
+}
+
+Obj ListView::tail() const {
+  Obj cur = head;
+  while (cur.is_cons()) {
+    cur = cur.cdr();
+  }
+  return cur;
 }
 
 ListProfile Obj::get_list_profile() const {

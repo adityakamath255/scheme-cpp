@@ -1,5 +1,6 @@
 #pragma once
 #include <compare>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -52,7 +53,6 @@ enum class Type : size_t {
 };
 
 class Number {
-private:
   std::variant<int64_t, BigInt *, double> rep;
   explicit Number(std::variant<int64_t, BigInt *, double> rep);
 
@@ -99,7 +99,6 @@ struct Symbol {
 };
 
 class Obj {
-private:
   Value data;
 
 public:
@@ -158,6 +157,34 @@ public:
 
   Obj car() const;
   Obj cdr() const;
+};
+
+class ListView {
+  Obj head;
+
+public:
+  explicit ListView(Obj head);
+
+  class iterator {
+    Obj cur;
+
+  public:
+    using value_type = Obj;
+    using difference_type = std::ptrdiff_t;
+    using iterator_concept = std::input_iterator_tag;
+
+    explicit iterator(Obj cur);
+
+    Obj operator*() const;
+    iterator &operator++();
+    iterator operator++(int);
+
+    bool operator==(std::default_sentinel_t) const;
+  };
+
+  iterator begin() const;
+  std::default_sentinel_t end() const;
+  Obj tail() const;
 };
 
 struct ListProfile {

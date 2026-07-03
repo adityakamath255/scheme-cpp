@@ -3,14 +3,16 @@
 #include "eval.hpp"
 #include "lex.hpp"
 #include "parse.hpp"
-#include <stdexcept>
-#include <format>
+
 #include <cmath>
-#include <iostream>
-#include <sstream>
-#include <fstream>
 #include <compare>
 #include <cstdint>
+#include <format>
+#include <fstream>
+#include <iostream>
+#include <ranges>
+#include <stdexcept>
+#include <sstream>
 
 // --- helpers ---
 
@@ -711,16 +713,11 @@ static Obj builtin_vector_to_list(const std::vector<Obj> &args, Ctx *ctx) {
 
 static Obj builtin_list_to_vector(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "list->vector", 1, 1);
-  std::vector<Obj> elements;
-  Obj lst = args[0];
-  while (lst.is_cons()) {
-    elements.push_back(lst.car());
-    lst = lst.cdr();
-  }
-  if (!lst.is_null()) {
+  ListView list{args[0]};
+  if (!list.tail().is_null()) {
     throw std::runtime_error("list->vector: expected proper list");
   }
-  return ctx->alloc<Vector>(std::move(elements));
+  return ctx->alloc<Vector>(std::ranges::to<std::vector>(list));
 }
 
 // --- misc ---
@@ -789,20 +786,15 @@ static Obj builtin_apply(const std::vector<Obj> &args, Ctx *ctx) {
     );
   }
 
-  std::vector<Obj> call_args;
-  for (size_t i = 1; i + 1 < args.size(); i += 1) {
-    call_args.push_back(args[i]);
-  }
+  std::vector<Obj> call_args(args.begin() + 1, args.end() - 1);
 
-  Obj tail = args.back();
-  while (tail.is_cons()) {
-    call_args.push_back(tail.car());
-    tail = tail.cdr();
-  }
+  ListView rest{args.back()};
 
-  if (!tail.is_null()) {
+  if (!rest.tail().is_null()) {
     throw std::runtime_error("apply: last argument must be a proper list");
   }
+
+  call_args.append_range(rest);
 
   if (proc.is_builtin()) {
     return proc.as_builtin()->fn(call_args, ctx);
