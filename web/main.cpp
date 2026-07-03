@@ -37,7 +37,7 @@ public:
         if (std::holds_alternative<Exhausted>(r)) return msg("ok");
         auto &e = std::get<Evaluated>(r);
         if (!e.output.empty()) emit(msg("out", e.output));
-        if (!e.value.is_void()) emit(msg("res", e.value.stringify(true)));
+        if (!e.value.is_void()) emit(msg("res", e.value.to_write()));
         rest = e.rest;
       }
     }

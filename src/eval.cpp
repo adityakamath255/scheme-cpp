@@ -132,38 +132,25 @@ static Obj eval_quasiquote(Obj obj, Env *env, Ctx *ctx) {
   }
 
   else {
+    ListView items{obj};
     std::vector<Obj> elements;
-    Obj tail = obj;
-    while (tail.is_cons()) {
-      Obj elem = tail.car();
 
+    for (Obj elem : items) {
       if (
         elem.is_cons()
         && elem.car().is_symbol()
         && elem.car().as_symbol() == ctx->sym_unquote_splicing
       ) {
-        Obj spliced = eval(elem.cdr().car(), env, ctx);
-        elements.append_range(ListView{spliced});
+        elements.append_range(ListView{eval(elem.cdr().car(), env, ctx)});
       }
       else {
         elements.push_back(eval_quasiquote(elem, env, ctx));
       }
-
-      tail = tail.cdr();
     }
 
-    Obj result = (
-      tail.is_null() 
-      ? Null{}
-      : eval_quasiquote(tail, env, ctx)
-    );
-
-    for (size_t i = elements.size(); i > 0; ) {
-      i -= 1;
-      result = ctx->alloc<Cons>(elements[i], result);
-    }
-
-    return result;
+    Obj raw_tail = items.tail();
+    Obj tail = raw_tail.is_null() ? Obj(Null{}) : eval_quasiquote(raw_tail, env, ctx);
+    return list_from(elements, ctx, tail);
   }
 }
 
@@ -471,40 +458,20 @@ static EvalResult eval_cond(Obj clauses, Env *env, Ctx *ctx) {
   return Obj(Void{});
 }
 
-static EvalResult eval_and(Obj rest, Env *env, Ctx *ctx) {
+// `and` returns the first false operand (identity #t); `or` returns the first
+// true operand (identity #f). Both tail-call the last operand.
+static EvalResult eval_and_or(Obj rest, Env *env, Ctx *ctx, bool conjunction) {
   if (rest.is_null()) {
-    return Obj(true);
+    return Obj(conjunction);
   }
-  else {
-    while (rest.cdr().is_cons()) {
-      Obj val = eval(rest.car(), env, ctx);
-      if (val.is_false()) {
-        return val;
-      }
-      else {
-        rest = rest.cdr();
-      }
+  while (rest.cdr().is_cons()) {
+    Obj val = eval(rest.car(), env, ctx);
+    if (val.is_true() != conjunction) {
+      return val;
     }
-    return TailCall{rest.car(), env};
+    rest = rest.cdr();
   }
-}
-
-static EvalResult eval_or(Obj rest, Env *env, Ctx *ctx) {
-  if (rest.is_null()) {
-    return Obj(false);
-  }
-  else {
-    while (rest.cdr().is_cons()) {
-      Obj val = eval(rest.car(), env, ctx);
-      if (val.is_true()) {
-        return val;
-      }
-      else {
-        rest = rest.cdr();
-      }
-    }
-    return TailCall{rest.car(), env};
-  }
+  return TailCall{rest.car(), env};
 }
 
 // --- dispatch ---
@@ -530,7 +497,7 @@ static EvalResult eval_apply(Obj head, Obj rest, Env *env, Ctx *ctx) {
   }
 
   throw std::runtime_error(
-    "not a procedure: " + proc.stringify(false)
+    "not a procedure: " + proc.to_display()
   );
 }
 
@@ -601,10 +568,10 @@ static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
         return eval_cond(rest, env, ctx);
       }
       else if (sym == ctx->sym_and) {
-        return eval_and(rest, env, ctx);
+        return eval_and_or(rest, env, ctx, true);
       }
       else if (sym == ctx->sym_or) {
-        return eval_or(rest, env, ctx);
+        return eval_and_or(rest, env, ctx, false);
       }
       else if (sym == ctx->sym_quasiquote) {
         return eval_quasiquote_form(rest, env, ctx);
@@ -649,12 +616,10 @@ void bind_args(
     for (size_t i = 0; i + 1 < params.size(); i += 1) {
       env->define(params[i], args[i]);
     }
-    Obj rest = Null{};
-    for (size_t i = args.size(); i > params.size() - 1; ) {
-      i -= 1;
-      rest = ctx->alloc<Cons>(args[i], rest);
-    }
-    env->define(params.back(), rest);
+    env->define(
+      params.back(),
+      list_from(args | std::views::drop(params.size() - 1), ctx)
+    );
   }
   else {
     if (args.size() != params.size()) {

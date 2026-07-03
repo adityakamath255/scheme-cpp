@@ -4,6 +4,7 @@
 #include "lex.hpp"
 #include "parse.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <compare>
 #include <cstdint>
@@ -96,22 +97,22 @@ static Obj numeric_compare(
   Ok ok
 ) {
   check_arity(args, name, 1, SIZE_MAX);
-  for (size_t i = 1; i < args.size(); i += 1) {
-    if (!ok(as_num(args[i - 1], name).compare(as_num(args[i], name)))) {
-      return false;
-    }
-  }
-  return true;
+  auto nums = args
+    | std::views::transform([&](Obj a) { return as_num(a, name); })
+    | std::ranges::to<std::vector>();
+  return std::ranges::all_of(
+    nums | std::views::pairwise,
+    [&](auto pair) { return ok(std::get<0>(pair).compare(std::get<1>(pair))); }
+  );
 }
 
 // --- arithmetic ---
 
 static Obj builtin_add(const std::vector<Obj> &args, Ctx *ctx) {
-  Number sum = Number::exact(0, ctx);
-  for (const auto &arg : args) {
-    sum = sum.add(as_num(arg, "+"), ctx);
-  }
-  return sum;
+  return std::ranges::fold_left(
+    args, Number::exact(0, ctx),
+    [ctx](Number acc, Obj x) { return acc.add(as_num(x, "+"), ctx); }
+  );
 }
 
 static Obj builtin_sub(const std::vector<Obj> &args, Ctx *ctx) {
@@ -129,11 +130,10 @@ static Obj builtin_sub(const std::vector<Obj> &args, Ctx *ctx) {
 }
 
 static Obj builtin_mul(const std::vector<Obj> &args, Ctx *ctx) {
-  Number product = Number::exact(1, ctx);
-  for (const auto &arg : args) {
-    product = product.mul(as_num(arg, "*"), ctx);
-  }
-  return product;
+  return std::ranges::fold_left(
+    args, Number::exact(1, ctx),
+    [ctx](Number acc, Obj x) { return acc.mul(as_num(x, "*"), ctx); }
+  );
 }
 
 static Obj builtin_div(const std::vector<Obj> &args, Ctx *ctx) {
@@ -232,32 +232,29 @@ static Obj builtin_round(const std::vector<Obj> &args, Ctx *) {
   return n.is_exact() ? n : Number::inexact(std::round(n.to_double()));
 }
 
-static Obj builtin_max(const std::vector<Obj> &args, Ctx *) {
-  check_arity(args, "max", 1, SIZE_MAX);
-  Number best = as_num(args[0], "max");
-  bool inexact = !best.is_exact();
-  for (size_t i = 1; i < args.size(); i += 1) {
-    Number n = as_num(args[i], "max");
-    inexact = inexact || !n.is_exact();
-    if (n.compare(best) == std::partial_ordering::greater) {
-      best = n;
-    }
-  }
+static Obj minmax(
+  const std::vector<Obj> &args,
+  std::string_view name,
+  std::partial_ordering want
+) {
+  check_arity(args, name, 1, SIZE_MAX);
+  auto nums = args
+    | std::views::transform([&](Obj a) { return as_num(a, name); })
+    | std::ranges::to<std::vector>();
+  bool inexact = std::ranges::any_of(nums, [](Number n) { return !n.is_exact(); });
+  Number best = std::ranges::fold_left_first(
+    nums,
+    [want](Number a, Number b) { return b.compare(a) == want ? b : a; }
+  ).value();
   return inexact ? best.to_inexact() : best;
 }
 
+static Obj builtin_max(const std::vector<Obj> &args, Ctx *) {
+  return minmax(args, "max", std::partial_ordering::greater);
+}
+
 static Obj builtin_min(const std::vector<Obj> &args, Ctx *) {
-  check_arity(args, "min", 1, SIZE_MAX);
-  Number best = as_num(args[0], "min");
-  bool inexact = !best.is_exact();
-  for (size_t i = 1; i < args.size(); i += 1) {
-    Number n = as_num(args[i], "min");
-    inexact = inexact || !n.is_exact();
-    if (n.compare(best) == std::partial_ordering::less) {
-      best = n;
-    }
-  }
-  return inexact ? best.to_inexact() : best;
+  return minmax(args, "min", std::partial_ordering::less);
 }
 
 static Obj builtin_quotient(const std::vector<Obj> &args, Ctx *ctx) {
@@ -433,12 +430,7 @@ static Obj builtin_cons(const std::vector<Obj> &args, Ctx *ctx) {
 }
 
 static Obj builtin_list(const std::vector<Obj> &args, Ctx *ctx) {
-  Obj result = Null{};
-  for (size_t i = args.size(); i > 0; ) {
-    i -= 1;
-    result = ctx->alloc<Cons>(args[i], result);
-  }
-  return result;
+  return list_from(args, ctx);
 }
 
 static Obj builtin_length(const std::vector<Obj> &args, Ctx *ctx) {
@@ -518,11 +510,13 @@ static Obj builtin_substring(const std::vector<Obj> &args, Ctx *ctx) {
 }
 
 static Obj builtin_string_append(const std::vector<Obj> &args, Ctx *ctx) {
-  std::string result;
-  for (const auto &arg : args) {
-    result += as_string(arg, "string-append")->data;
-  }
-  return ctx->alloc<String>(std::move(result));
+  return ctx->alloc<String>(std::ranges::to<std::string>(
+    args
+    | std::views::transform(
+        [](Obj a) -> const std::string & { return as_string(a, "string-append")->data; }
+      )
+    | std::views::join
+  ));
 }
 
 static Obj builtin_string_eq(const std::vector<Obj> &args, Ctx *) {
@@ -559,27 +553,18 @@ static Obj builtin_integer_to_char(const std::vector<Obj> &args, Ctx *) {
 
 static Obj builtin_string_to_list(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "string->list", 1, 1);
-  const std::string &s = as_string(args[0], "string->list")->data;
-  Obj result = Null{};
-  for (size_t i = s.size(); i > 0; ) {
-    i -= 1;
-    result = ctx->alloc<Cons>(s[i], result);
-  }
-  return result;
+  return list_from(as_string(args[0], "string->list")->data, ctx);
 }
 
 static Obj builtin_list_to_string(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "list->string", 1, 1);
-  std::string result;
-  Obj lst = args[0];
-  while (lst.is_cons()) {
-    result += as_char(lst.car(), "list->string");
-    lst = lst.cdr();
-  }
-  if (!lst.is_null()) {
+  ListView list{args[0]};
+  if (!list.tail().is_null()) {
     throw std::runtime_error("list->string: expected proper list");
   }
-  return ctx->alloc<String>(std::move(result));
+  return ctx->alloc<String>(std::ranges::to<std::string>(
+    list | std::views::transform([](Obj c) { return as_char(c, "list->string"); })
+  ));
 }
 
 // --- conversion ---
@@ -615,13 +600,13 @@ static Obj builtin_string_to_symbol(const std::vector<Obj> &args, Ctx *ctx) {
 
 static Obj builtin_display(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "display", 1, 1);
-  ctx->print(args[0].stringify(false));
+  ctx->print(args[0].to_display());
   return Void{};
 }
 
 static Obj builtin_write(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "write", 1, 1);
-  ctx->print(args[0].stringify(true));
+  ctx->print(args[0].to_write());
   return Void{};
 }
 
@@ -699,13 +684,7 @@ static Obj builtin_vector_length(const std::vector<Obj> &args, Ctx *ctx) {
 
 static Obj builtin_vector_to_list(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "vector->list", 1, 1);
-  Vector *v = as_vector(args[0], "vector->list");
-  Obj result = Null{};
-  for (size_t i = v->data.size(); i > 0; ) {
-    i -= 1;
-    result = ctx->alloc<Cons>(v->data[i], result);
-  }
-  return result;
+  return list_from(as_vector(args[0], "vector->list")->data, ctx);
 }
 
 static Obj builtin_list_to_vector(const std::vector<Obj> &args, Ctx *ctx) {
@@ -722,9 +701,9 @@ static Obj builtin_list_to_vector(const std::vector<Obj> &args, Ctx *ctx) {
 static Obj builtin_error(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "error", 1, SIZE_MAX);
   std::ostringstream msg;
-  msg << args[0].stringify(false);
+  msg << args[0].to_display();
   for (size_t i = 1; i < args.size(); i += 1) {
-    msg << " " << args[i].stringify(true);
+    msg << " " << args[i].to_write();
   }
   throw std::runtime_error(msg.str());
 }

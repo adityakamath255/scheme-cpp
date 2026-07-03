@@ -32,9 +32,7 @@ bool GlobalEnv::set(Symbol sym, Obj obj) {
 
 void GlobalEnv::trace(std::vector<HeapEntity *> *worklist) const {
   for (const auto &[_, obj] : bindings) {
-    if (auto entity = obj.heap_entity()) {
-      worklist->push_back(*entity);
-    }
+    trace_child(obj, worklist);
   }
 }
 
@@ -67,9 +65,7 @@ bool LocalEnv::set(Symbol sym, Obj obj) {
 
 void LocalEnv::trace(std::vector<HeapEntity *> *worklist) const {
   for (const auto &[_, obj] : bindings) {
-    if (auto entity = obj.heap_entity()) {
-      worklist->push_back(*entity);
-    }
+    trace_child(obj, worklist);
   }
   worklist->push_back(parent);
 }

@@ -42,7 +42,9 @@ cmake --build web/build
 
 ### Special forms
 
-`define`, `lambda`, `if`, `cond`, `let`, `let*`, `set!`, `begin`, `and`, `or`, `quote`, `quasiquote`, `unquote`, `unquote-splicing`, `define-macro`
+`define`, `lambda`, `if`, `cond`, `case`, `when`, `unless`, `let`, `let*`, `letrec`, `set!`, `begin`, `and`, `or`, `quote`, `quasiquote`, `unquote`, `unquote-splicing`, `define-macro`
+
+`let` also supports the named form (`(let loop ((i 0)) ...)`) for tail-recursive iteration.
 
 `and` and `or` return the deciding value, not a boolean: `(and 1 2 3)` returns `3`, `(or #f 42)` returns `42`. `cond` clauses with no body return the test value: `(cond (5))` returns `5`. Quasiquote works inside vectors: `` `#(1 ,x 3) ``, and `unquote-splicing` (`,@`) splices a list into the surrounding form: `` `(1 ,@'(2 3) 4) `` returns `(1 2 3 4)`.
 
@@ -62,7 +64,9 @@ A symbol target binds an existing procedure as a macro: `(define-macro my-if (la
 
 ### Built-in procedures
 
-Arithmetic: `+`, `-`, `*`, `/`, `abs`, `sqrt`, `sin`, `cos`, `log`, `expt`, `ceiling`, `floor`, `round`, `max`, `min`, `quotient`, `remainder`, `modulo`, `even?`, `odd?`
+Arithmetic: `+`, `-`, `*`, `/`, `abs`, `sqrt`, `sin`, `cos`, `log`, `expt`, `ceiling`, `floor`, `round`, `max`, `min`, `quotient`, `remainder`, `modulo`, `even?`, `odd?`, `zero?`, `positive?`, `negative?`
+
+Exactness: `exact?`, `inexact?`, `exact`, `inexact` (aliases `inexact->exact`, `exact->inexact`)
 
 Comparison: `<`, `>`, `=`, `<=`, `>=` (all accept multiple arguments and test pairwise)
 
@@ -72,7 +76,9 @@ Strings: `string-length`, `string-ref`, `substring`, `string-append`, `string=?`
 
 Vectors: `vector`, `make-vector`, `vector-ref`, `vector-set!`, `vector-length`, `vector->list`, `list->vector`
 
-Type predicates: `null?`, `boolean?`, `number?`, `integer?`, `pair?`, `symbol?`, `string?`, `procedure?`, `list?`, `vector?`, `void?`, `not`
+Characters: `char?`, `char=?`, `char->integer`, `integer->char`, `string->list`, `list->string`. `write` prints a char as `#\a` (or `#\space`, `#\newline`, `#\tab`, `#\return`); `display` prints the bare character.
+
+Type predicates: `null?`, `boolean?`, `number?`, `integer?`, `char?`, `pair?`, `symbol?`, `string?`, `procedure?`, `list?`, `vector?`, `void?`, `not`
 
 Equality: `eq?` (identity), `equal?` (structural, iterates along cdrs to avoid stack overflow on long lists)
 
@@ -112,9 +118,9 @@ Mutual tail recursion works:
 
 ## Garbage collection
 
-The collector is non-moving mark-and-sweep. All heap-allocated objects (cons cells, strings, vectors, closures, environments) are tracked in a linear list. When the live count exceeds a threshold, the collector walks all objects reachable from the global environment, then deletes everything else. The threshold doubles after each collection.
+The collector is non-moving mark-and-sweep. All heap-allocated objects (cons cells, strings, vectors, closures, environments, bignums) are tracked in a linear list. When the live count exceeds a threshold, the collector walks all objects reachable from the global environment, then deletes everything else. The threshold doubles after each collection.
 
-Strings, booleans, numbers, symbols, and null/void are not heap-allocated. Symbols are interned into an `unordered_set`; two symbols with the same name share a pointer, so symbol comparison is pointer equality.
+Booleans, characters, symbols, fixnums, inexact reals, and null/void are not heap-allocated; bignums are. Symbols are interned into an `unordered_set`; two symbols with the same name share a pointer, so symbol comparison is pointer equality.
 
 ## Tests
 
@@ -126,12 +132,13 @@ Tests are written in Scheme using a small framework (`tests/framework.scm`) that
 
 ## Source layout
 
-The core interpreter is nine source files in `src/`:
+The core interpreter is ten source files in `src/`:
 
 - `lex.cpp` - tokenizer. Returns `nullopt` for incomplete input, which `driver.cpp` turns into an `Incomplete` result so both the terminal and browser REPLs detect multi-line expressions without a separate bracket checker.
 - `parse.cpp` - recursive descent parser. Produces S-expressions (cons cells, symbols, literals), not an AST.
-- `types.cpp` - the `Obj` class wrapping `std::variant<bool, double, Symbol, String*, Cons*, Vector*, Procedure*, Builtin*, Null, Void>`. Provides type checks, accessors, structural equality, and printing.
-- `env.cpp` - lexical environments. An `Env` is a hash map from interned symbols to values, with a parent pointer.
+- `types.cpp` - the `Obj` class wrapping `std::variant<bool, char, Number, Symbol, String*, Cons*, Vector*, Procedure*, Builtin*, Null, Void>`, where `Number` is a fixnum/bignum/double variant. Provides type checks, accessors, structural equality, and printing (`to_write`/`to_display`).
+- `number.cpp` - the `Number` type: exact fixnums that auto-promote to libtommath bignums on overflow, plus inexact doubles. Arithmetic, comparison, and exact/inexact conversion.
+- `env.cpp` - lexical environments. `GlobalEnv` is a hash map from interned symbols to values; `LocalEnv` is a small vector of bindings with a parent pointer.
 - `ctx.cpp` - the `Ctx` class: arena allocator, symbol intern table, and garbage collector.
 - `eval.cpp` - evaluator. Dispatches special forms by symbol name, evaluates procedure calls, implements the tail call trampoline.
 - `builtins.cpp` - all built-in procedure implementations, registered as raw function pointers.
@@ -146,6 +153,6 @@ The two front-ends build on `driver.cpp`:
 
 - No hygienic macros (`define-syntax`, `syntax-rules`). `define-macro` is non-hygienic.
 - No continuations (`call/cc`).
-- Numbers are IEEE 754 doubles only. No exact integers, rationals, or bignums. Integers above 2^53 lose precision.
+- Numbers are exact integers (fixnum, auto-promoting to arbitrary-precision bignum) or inexact reals (IEEE 754 double). No rationals or complex numbers.
 - No ports. I/O is stdin/stdout only.
 - Deep non-tail recursion is bounded by the C stack: the native binary handles a few thousand frames, and in the browser the wasm build (8MB stack) is capped lower by the JavaScript engine's own call-stack limit. Overflowing it raises a catchable error rather than crashing the session. Tail recursion is unaffected and runs in constant space.

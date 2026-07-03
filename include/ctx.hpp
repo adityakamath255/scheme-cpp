@@ -1,6 +1,8 @@
 #pragma once
 #include "types.hpp"
 #include "env.hpp"
+#include <algorithm>
+#include <ranges>
 #include <string>
 #include <unordered_set>
 
@@ -37,3 +39,11 @@ public:
          sym_unquote_splicing, sym_else, sym_define_macro,
          sym_when, sym_unless, sym_case;
 };
+
+template<std::ranges::input_range R>
+Obj list_from(R &&elems, Ctx *ctx, Obj tail = Null{}) {
+  return std::ranges::fold_right(
+    std::forward<R>(elems), tail,
+    [ctx](Obj elem, Obj acc) -> Obj { return ctx->alloc<Cons>(elem, acc); }
+  );
+}

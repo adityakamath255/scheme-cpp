@@ -31,9 +31,6 @@ namespace {
 
 using Rep = std::variant<int64_t, BigInt *, double>;
 
-template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
-template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
-
 struct Mp {
   mp_int v;
   Mp() { check(mp_init(&v)); }

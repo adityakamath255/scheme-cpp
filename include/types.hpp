@@ -7,6 +7,9 @@
 #include <variant>
 #include <vector>
 
+template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+
 struct BigInt;
 class Number;
 struct Symbol;
@@ -148,7 +151,8 @@ public:
   bool same_type(Obj) const;
   bool equals(Obj) const;
 
-  std::string stringify(bool) const;
+  std::string to_write() const;
+  std::string to_display() const;
   std::string stringify_type() const;
 
   ListProfile get_list_profile() const;
@@ -191,6 +195,8 @@ struct ListProfile {
   size_t size;
   bool is_proper;
 };
+
+void trace_child(Obj obj, std::vector<HeapEntity *> *worklist);
 
 struct HeapEntity {
   virtual void trace(std::vector<HeapEntity *> *) const {}

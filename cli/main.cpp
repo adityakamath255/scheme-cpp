@@ -40,7 +40,7 @@ static void repl(Ctx *ctx) {
         std::string rest(e->rest);
         std::cout << e->output;
         if (!e->value.is_void()) {
-          std::cout << e->value.stringify(true) << "\n";
+          std::cout << e->value.to_write() << "\n";
         }
         input = rest;
         continue;

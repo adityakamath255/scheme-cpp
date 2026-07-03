@@ -5,7 +5,6 @@
 #include <format>
 #include <ranges>
 #include <string>
-#include <sstream>
 #include <type_traits>
 
 Symbol::Symbol(const std::string *ptr): ptr {ptr} {}
@@ -134,15 +133,16 @@ Builtin *Obj::as_builtin() const {
 }
 
 std::optional<HeapEntity *> Obj::heap_entity() const {
-  switch (get_type()) {
-    case Type::Number: return as_number().heap_entity();
-    case Type::String: return as_string();
-    case Type::Cons: return as_cons();
-    case Type::Vector: return as_vector();
-    case Type::Procedure: return as_procedure();
-    case Type::Builtin: return as_builtin();
-    default: return std::nullopt;
-  }
+  using Ret = std::optional<HeapEntity *>;
+  return std::visit(overloaded {
+    [](Number n)     { return n.heap_entity(); },
+    [](String *s)    -> Ret { return s; },
+    [](Cons *c)      -> Ret { return c; },
+    [](Vector *v)    -> Ret { return v; },
+    [](Procedure *p) -> Ret { return p; },
+    [](Builtin *b)   -> Ret { return b; },
+    [](auto)         -> Ret { return std::nullopt; },
+  }, data);
 }
 
 bool Obj::is_true() const {
@@ -181,38 +181,43 @@ bool Obj::equals(Obj other) const {
         && a.tail().equals(b.tail());
     }
 
-    case Type::Vector: {
-      const std::vector<Obj> &vec_0 = as_vector()->data;
-      const std::vector<Obj> &vec_1 = other.as_vector()->data;
-
-      if (vec_0.size() != vec_1.size()) {
-        return false;
-      }
-      else {
-        for (size_t i = 0; i < vec_0.size(); i += 1) {
-          if (!vec_0[i].equals(vec_1[i])) {
-            return false;
-          }
-        }
-        return true;
-      }
-    }
+    case Type::Vector:
+      return std::ranges::equal(
+        as_vector()->data, other.as_vector()->data,
+        [](Obj x, Obj y) { return x.equals(y); }
+      );
 
     default:
       return false;
   }
 }
 
-std::string Obj::stringify(bool quote) const {
-  switch (get_type()) {
+static std::string render(Obj obj, bool write);
+
+static std::string join_elems(std::ranges::input_range auto &&elems, bool write) {
+  return std::ranges::to<std::string>(
+    elems
+    | std::views::transform([write](Obj x) { return render(x, write); })
+    | std::views::join_with(' ')
+  );
+}
+
+std::string Obj::to_write() const { return render(*this, true); }
+std::string Obj::to_display() const { return render(*this, false); }
+
+static std::string render(Obj obj, bool write) {
+  switch (obj.get_type()) {
     case Type::Bool:
-      return as_bool() ? "#t" : "#f";
+      return obj.as_bool() ? "#t" : "#f";
 
     case Type::Number:
-      return as_number().to_string();
+      return obj.as_number().to_string();
 
     case Type::Char: {
-      char c = as_char();
+      char c = obj.as_char();
+      if (!write) {
+        return std::string(1, c);
+      }
       switch (c) {
         case ' ': return "#\\space";
         case '\n': return "#\\newline";
@@ -223,15 +228,15 @@ std::string Obj::stringify(bool quote) const {
     }
 
     case Type::Symbol:
-      return as_symbol().get_name();
+      return obj.as_symbol().get_name();
 
     case Type::String:
-      if (!quote) {
-        return as_string()->data;
+      if (!write) {
+        return obj.as_string()->data;
       }
       else {
         std::string res = "\"";
-        for (char c : as_string()->data) {
+        for (char c : obj.as_string()->data) {
           switch (c) {
             case '"': res += "\\\""; break;
             case '\\': res += "\\\\"; break;
@@ -245,55 +250,33 @@ std::string Obj::stringify(bool quote) const {
       }
 
     case Type::Cons: {
-      ListView list{*this};
-
-      std::string body = std::ranges::to<std::string>(
-        list
-        | std::views::transform([quote](Obj x) { return x.stringify(quote); })
-        | std::views::join_with(' ')
-      );
-
+      ListView list{obj};
       Obj tail = list.tail();
-      std::string dotted = tail.is_null() ? "" : " . " + tail.stringify(quote);
-
-      return "(" + body + dotted + ")";
+      std::string dotted = tail.is_null() ? "" : " . " + render(tail, write);
+      return "(" + join_elems(list, write) + dotted + ")";
     }
 
-    case Type::Vector: {
-      std::ostringstream res;
-      res << "#(";
-      const std::vector<Obj> &data = as_vector()->data;
-      
-      for (size_t i = 0; i < data.size(); i += 1) {
-        if (i > 0) {
-          res << " ";
-        }
-        res << data[i].stringify(quote);
-      }
-
-      res << ")";
-
-      return res.str();
-    }
+    case Type::Vector:
+      return "#(" + join_elems(obj.as_vector()->data, write) + ")";
 
     case Type::Procedure:
-      if (as_procedure()->macro) {
+      if (obj.as_procedure()->macro) {
         return std::format(
           "<macro at {}>",
-          static_cast<const void *>(as_procedure())
+          static_cast<const void *>(obj.as_procedure())
         );
       }
       else {
         return std::format(
           "<procedure at {}>",
-          static_cast<const void *>(as_procedure())
+          static_cast<const void *>(obj.as_procedure())
         );
       }
 
     case Type::Builtin:
       return std::format(
         "<procedure at {}>",
-        static_cast<const void *>(as_builtin())
+        static_cast<const void *>(obj.as_builtin())
       );
 
     case Type::Null:
@@ -301,7 +284,7 @@ std::string Obj::stringify(bool quote) const {
 
     case Type::Void:
       return "#<void>";
-      
+
     default:
       return "???";
   }
@@ -394,24 +377,24 @@ bool Obj::is_list() const {
 
 String::String(std::string data): data {std::move(data)} {}
 
+void trace_child(Obj obj, std::vector<HeapEntity *> *worklist) {
+  if (auto entity = obj.heap_entity()) {
+    worklist->push_back(*entity);
+  }
+}
+
 Cons::Cons(Obj car, Obj cdr): car {car}, cdr {cdr} {}
 
 void Cons::trace(std::vector<HeapEntity *> *worklist) const {
-  if (auto entity = car.heap_entity()) {
-    worklist->push_back(*entity);
-  }
-  if (auto entity = cdr.heap_entity()) {
-    worklist->push_back(*entity);
-  }
+  trace_child(car, worklist);
+  trace_child(cdr, worklist);
 }
 
 Vector::Vector(std::vector<Obj> data): data {std::move(data)} {}
 
 void Vector::trace(std::vector<HeapEntity *> *worklist) const {
-  for (auto obj : data) {
-    if (auto entity = obj.heap_entity()) {
-      worklist->push_back(*entity);
-    }
+  for (Obj obj : data) {
+    trace_child(obj, worklist);
   }
 }
 
@@ -432,8 +415,6 @@ Procedure::Procedure(
 {}
 
 void Procedure::trace(std::vector<HeapEntity *> *worklist) const {
-  if (auto entity = body.heap_entity()) {
-    worklist->push_back(*entity);
-  }
+  trace_child(body, worklist);
   worklist->push_back(env);
 }
