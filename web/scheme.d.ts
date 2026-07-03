@@ -3,13 +3,15 @@ interface SchemeOptions {
   printErr?: (text: string) => void;
 }
 
+type Message = { kind: "out" | "res"; text: string };
+
 type RunResult =
   | { kind: "ok" }
   | { kind: "incomplete" }
-  | { kind: "error"; message: string };
+  | { kind: "error"; text: string };
 
 interface Session {
-  run(source: string, emit: (value: string) => void): RunResult;
+  run(source: string, emit: (m: Message) => void): RunResult;
   delete(): void;
 }
 

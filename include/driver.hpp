@@ -5,7 +5,7 @@
 
 class Ctx;
 
-struct Evaluated  { Obj value; std::string_view rest; };
+struct Evaluated  { Obj value; std::string output; std::string_view rest; };
 struct Exhausted  {};
 struct Incomplete {};
 using ReadEval = std::variant<Evaluated, Exhausted, Incomplete>;

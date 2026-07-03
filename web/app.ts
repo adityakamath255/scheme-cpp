@@ -150,10 +150,13 @@ class Repl {
     if (!this.session) return null;
     const t0 = performance.now();
     try {
-      const r = this.session.run(source, v => this.console.result(v));
+      const r = this.session.run(source, m => {
+        if (m.kind === "out") this.console.print(m.text);
+        else this.console.result(m.text);
+      });
       const ms = performance.now() - t0;
       if (r.kind === "incomplete") this.console.error("unexpected end of input");
-      else if (r.kind === "error") this.console.error(r.message);
+      else if (r.kind === "error") this.console.error(r.text);
       return ms;
     } catch (ex) {
       if (ex instanceof RangeError) { this.console.error(ex.message); return performance.now() - t0; }

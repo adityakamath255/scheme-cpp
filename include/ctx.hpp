@@ -1,18 +1,23 @@
 #pragma once
 #include "types.hpp"
 #include "env.hpp"
+#include <string>
 #include <unordered_set>
 
 class Ctx {
   std::vector<HeapEntity *> live;
   std::unordered_set<std::string> interned;
   size_t gc_threshold;
+  std::string output;
 
 public:
   Ctx();
   ~Ctx();
 
   Env *const global_env;
+
+  void print(std::string_view);
+  std::string take_output();
 
   Symbol intern(std::string_view);
 

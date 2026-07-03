@@ -7,9 +7,15 @@
 #include <emscripten.h>
 #include <string>
 
-emscripten::val status(const char *kind) {
+emscripten::val msg(const char *kind) {
   emscripten::val o = emscripten::val::object();
   o.set("kind", std::string(kind));
+  return o;
+};
+
+emscripten::val msg(const char *kind, const std::string &text) {
+  emscripten::val o = msg(kind);
+  o.set("text", text);
   return o;
 };
 
@@ -27,17 +33,16 @@ public:
     try {
       for (;;) {
         ReadEval r = read_eval(rest, &ctx);
-        if (std::holds_alternative<Incomplete>(r)) return status("incomplete");
-        if (std::holds_alternative<Exhausted>(r)) return status("ok");
+        if (std::holds_alternative<Incomplete>(r)) return msg("incomplete");
+        if (std::holds_alternative<Exhausted>(r)) return msg("ok");
         auto &e = std::get<Evaluated>(r);
-        if (!e.value.is_void()) emit(e.value.stringify(true));
+        if (!e.output.empty()) emit(msg("out", e.output));
+        if (!e.value.is_void()) emit(msg("res", e.value.stringify(true)));
         rest = e.rest;
       }
     }
     catch (const std::exception &e) {
-      auto o = status("error");
-      o.set("message", std::string(e.what()));
-      return o;
+      return msg("error", e.what());
     }
   }
 };

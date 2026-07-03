@@ -17,7 +17,7 @@ ReadEval read_eval(std::string_view source, Ctx *ctx) {
   if (ctx->should_recycle()) {
     ctx->recycle();
   }
-  return Evaluated{value, result->rest};
+  return Evaluated{value, ctx->take_output(), result->rest};
 }
 
 void run_all(std::string_view source, Ctx *ctx) {

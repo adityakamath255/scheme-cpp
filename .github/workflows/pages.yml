@@ -21,25 +21,27 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: mymindstorm/setup-emsdk@v14
+      - uses: actions/checkout@v7
+      - name: Fetch libtommath
+        run: git submodule update --init --depth 1 third_party/libtommath
+      - uses: mymindstorm/setup-emsdk@v16
         with:
-          version: 6.0.1
+          version: 6.0.2
       - name: Build wasm
         run: |
           emcmake cmake -S web -B web/build
           cmake --build web/build
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
       - name: Typecheck and compile app.ts
         run: npx -y -p typescript@5.8 tsc -p web/tsconfig.json
       - name: Assemble site
         run: |
           mkdir -p site
           cp web/index.html web/styles.css web/app.js web/build/scheme.js web/build/scheme.wasm site/
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

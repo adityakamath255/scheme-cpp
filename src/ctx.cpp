@@ -1,4 +1,5 @@
 #include "ctx.hpp"
+#include <utility>
 
 Ctx::Ctx():
   live {},
@@ -31,6 +32,14 @@ Ctx::~Ctx() {
   for (auto *entity : live) {
     delete entity;
   }
+}
+
+void Ctx::print(std::string_view s) {
+  output += s;
+}
+
+std::string Ctx::take_output() {
+  return std::exchange(output, {});
 }
 
 Symbol Ctx::intern(std::string_view name) {

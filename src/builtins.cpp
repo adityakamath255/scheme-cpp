@@ -613,24 +613,21 @@ static Obj builtin_string_to_symbol(const std::vector<Obj> &args, Ctx *ctx) {
 
 // --- i/o ---
 
-static Obj builtin_display(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_display(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "display", 1, 1);
-  std::cout << args[0].stringify(false);
-  std::cout.flush();
+  ctx->print(args[0].stringify(false));
   return Void{};
 }
 
-static Obj builtin_write(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_write(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "write", 1, 1);
-  std::cout << args[0].stringify(true);
-  std::cout.flush();
+  ctx->print(args[0].stringify(true));
   return Void{};
 }
 
-static Obj builtin_newline(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_newline(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "newline", 0, 0);
-  std::cout << '\n';
-  std::cout.flush();
+  ctx->print("\n");
   return Void{};
 }
 
