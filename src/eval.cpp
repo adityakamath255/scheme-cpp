@@ -10,29 +10,7 @@ struct TailCall {
   Env *env;
 };
 
-class EvalResult {
-  std::variant<Obj, TailCall> data;
-
-public:
-  EvalResult(Obj data): data {data} {}
-  EvalResult(TailCall data): data {std::move(data)} {}
-
-  bool is_obj() const {
-    return holds_alternative<Obj>(data);
-  }
-
-  bool is_tail_call() const {
-    return holds_alternative<TailCall>(data);
-  }
-
-  Obj as_obj() const {
-    return get<Obj>(data);
-  }
-
-  TailCall as_tail_call() const {
-    return get<TailCall>(data);
-  }
-};
+using EvalResult = std::variant<Obj, TailCall>;
 
 // --- arity checking ---
 
@@ -706,10 +684,9 @@ void bind_args(
 }
 
 Obj eval(Obj expr, Env *env, Ctx *ctx) {
-  auto result = eval_expr(expr, env, ctx);
-  while (result.is_tail_call()) {
-    auto tc = result.as_tail_call();
-    result = eval_expr(tc.expr, tc.env, ctx);
+  EvalResult result = eval_expr(expr, env, ctx);
+  while (auto *tc = std::get_if<TailCall>(&result)) {
+    result = eval_expr(tc->expr, tc->env, ctx);
   }
-  return result.as_obj();
+  return std::get<Obj>(result);
 }

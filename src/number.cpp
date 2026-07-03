@@ -31,6 +31,9 @@ namespace {
 
 using Rep = std::variant<int64_t, BigInt *, double>;
 
+template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+
 struct Mp {
   mp_int v;
   Mp() { check(mp_init(&v)); }
@@ -77,39 +80,27 @@ const mp_int *as_mp(const Rep &r, Mp &scratch) {
 bool rep_is_exact(const Rep &r) { return !std::holds_alternative<double>(r); }
 
 double rep_to_double(const Rep &r) {
-  if (auto p = std::get_if<int64_t>(&r)) {
-    return static_cast<double>(*p);
-  }
-  else if (auto p = std::get_if<BigInt *>(&r)) {
-    return mp_get_double(&(*p)->val);
-  }
-  else {
-    return std::get<double>(r);
-  }
+  return std::visit(overloaded {
+    [](int64_t v) { return static_cast<double>(v); },
+    [](BigInt *b) { return mp_get_double(&b->val); },
+    [](double d)  { return d; },
+  }, r);
 }
 
 bool rep_is_zero(const Rep &r) {
-  if (auto p = std::get_if<int64_t>(&r)) {
-    return *p == 0;
-  }
-  else if (auto p = std::get_if<BigInt *>(&r)) {
-    return mp_iszero(&(*p)->val);
-  }
-  else {
-    return std::get<double>(r) == 0.0;
-  }
+  return std::visit(overloaded {
+    [](int64_t v) { return v == 0; },
+    [](BigInt *b) { return bool(mp_iszero(&b->val)); },
+    [](double d)  { return d == 0.0; },
+  }, r);
 }
 
 bool rep_is_negative(const Rep &r) {
-  if (auto p = std::get_if<int64_t>(&r)) {
-    return *p < 0;
-  }
-  else if (auto p = std::get_if<BigInt *>(&r)) {
-    return mp_isneg(&(*p)->val);
-  }
-  else {
-    return std::get<double>(r) < 0.0;
-  }
+  return std::visit(overloaded {
+    [](int64_t v) { return v < 0; },
+    [](BigInt *b) { return bool(mp_isneg(&b->val)); },
+    [](double d)  { return d < 0.0; },
+  }, r);
 }
 
 using MpBinop = mp_err (*)(const mp_int *, const mp_int *, mp_int *);
@@ -142,17 +133,15 @@ Rep arith(const Rep &a, const Rep &b, Ctx *ctx, Op op, MpBinop mp) {
 
 template<typename Fix>
 Rep unary(const Rep &a, Ctx *ctx, MpUnop mp, Fix fix) {
-  if (auto p = std::get_if<int64_t>(&a)) {
-    return of_i64(fix(*p), ctx);
-  }
-  else if (auto p = std::get_if<BigInt *>(&a)) {
-    BigInt *r = ctx->alloc<BigInt>();
-    check(mp(&(*p)->val, &r->val));
-    return from_bigint(r, ctx);
-  }
-  else {
-    return fix(std::get<double>(a));
-  }
+  return std::visit(overloaded {
+    [&](int64_t v) -> Rep { return of_i64(fix(v), ctx); },
+    [&](BigInt *b) -> Rep {
+      BigInt *r = ctx->alloc<BigInt>();
+      check(mp(&b->val, &r->val));
+      return from_bigint(r, ctx);
+    },
+    [&](double d) -> Rep { return fix(d); },
+  }, a);
 }
 
 struct QuotRem { Rep quot; Rep rem; };
@@ -205,15 +194,11 @@ bool Number::is_integer() const {
 }
 
 bool Number::is_even() const {
-  if (auto p = std::get_if<int64_t>(&rep)) {
-    return (*p & 1) == 0;
-  }
-  else if (auto p = std::get_if<BigInt *>(&rep)) {
-    return mp_iseven(&(*p)->val);
-  }
-  else {
-    return std::fmod(std::get<double>(rep), 2.0) == 0.0;
-  }
+  return std::visit(overloaded {
+    [](int64_t v) { return (v & 1) == 0; },
+    [](BigInt *b) { return bool(mp_iseven(&b->val)); },
+    [](double d)  { return std::fmod(d, 2.0) == 0.0; },
+  }, rep);
 }
 
 Number Number::add(Number o, Ctx *ctx) const { 
@@ -429,37 +414,35 @@ Number Number::parse(std::string_view lexeme, Ctx *ctx) {
 }
 
 std::string Number::to_string() const {
-  if (auto p = std::get_if<int64_t>(&rep)) {
-    return std::to_string(*p);
-  }
-  else if (auto p = std::get_if<BigInt *>(&rep)) {
-    size_t size;
-    check(mp_radix_size(&(*p)->val, 10, &size));
-    std::string s(size, '\0');
-    check(mp_to_radix(&(*p)->val, s.data(), size, nullptr, 10));
-    s.resize(std::strlen(s.c_str()));
-    return s;
-  }
-  else {
-    double d = std::get<double>(rep);
-    std::string s = std::format("{}", d);
-    if (
-      std::isfinite(d) 
-      && s.find_first_of(".eEnN") == std::string::npos
-    ) {
-      return s + ".0";
-    }
-    else {
+  return std::visit(overloaded {
+    [](int64_t v) -> std::string { return std::to_string(v); },
+    [](BigInt *b) -> std::string {
+      size_t size;
+      check(mp_radix_size(&b->val, 10, &size));
+      std::string s(size, '\0');
+      check(mp_to_radix(&b->val, s.data(), size, nullptr, 10));
+      s.resize(std::strlen(s.c_str()));
       return s;
-    }
-  }
+    },
+    [](double d) -> std::string {
+      std::string s = std::format("{}", d);
+      if (
+        std::isfinite(d)
+        && s.find_first_of(".eEnN") == std::string::npos
+      ) {
+        return s + ".0";
+      }
+      else {
+        return s;
+      }
+    },
+  }, rep);
 }
 
 std::optional<HeapEntity *> Number::heap_entity() const {
-  if (auto p = std::get_if<BigInt *>(&rep)) {
-    return *p;
-  }
-  else {
-    return std::nullopt;
-  }
+  return std::visit(overloaded {
+    [](int64_t)   -> std::optional<HeapEntity *> { return std::nullopt; },
+    [](BigInt *b) -> std::optional<HeapEntity *> { return b; },
+    [](double)    -> std::optional<HeapEntity *> { return std::nullopt; },
+  }, rep);
 }

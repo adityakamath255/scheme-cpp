@@ -4,6 +4,7 @@
 #include <string>
 #include <sstream>
 #include <format>
+#include <type_traits>
 
 Symbol::Symbol(const std::string *ptr): ptr {ptr} {}
 
@@ -28,6 +29,23 @@ Obj::Obj(Procedure *data): data {data} {}
 Obj::Obj(Builtin *data): data {data} {}
 Obj::Obj(Null data): data {data} {}
 Obj::Obj(Void data): data {data} {}
+
+template<Type t, typename Alt>
+static constexpr bool alt_is =
+  std::is_same_v<std::variant_alternative_t<static_cast<size_t>(t), Value>, Alt>;
+
+static_assert(std::variant_size_v<Value> == static_cast<size_t>(Type::Void) + 1);
+static_assert(alt_is<Type::Bool, bool>);
+static_assert(alt_is<Type::Char, char>);
+static_assert(alt_is<Type::Number, Number>);
+static_assert(alt_is<Type::Symbol, Symbol>);
+static_assert(alt_is<Type::String, String *>);
+static_assert(alt_is<Type::Cons, Cons *>);
+static_assert(alt_is<Type::Vector, Vector *>);
+static_assert(alt_is<Type::Procedure, Procedure *>);
+static_assert(alt_is<Type::Builtin, Builtin *>);
+static_assert(alt_is<Type::Null, Null>);
+static_assert(alt_is<Type::Void, Void>);
 
 Type Obj::get_type() const {
   return static_cast<Type>(data.index());
