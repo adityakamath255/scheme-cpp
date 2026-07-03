@@ -4,3 +4,6 @@
 [submodule "third_party/mimalloc"]
 	path = third_party/mimalloc
 	url = https://github.com/microsoft/mimalloc.git
+[submodule "third_party/libtommath"]
+	path = third_party/libtommath
+	url = https://github.com/libtom/libtommath

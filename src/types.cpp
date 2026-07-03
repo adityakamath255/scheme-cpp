@@ -17,8 +17,9 @@ bool Symbol::operator==(Symbol other) const {
 
 Obj::Obj(Value data): data {data} {}
 Obj::Obj(bool data): data {data} {}
-Obj::Obj(double data): data {data} {}
 Obj::Obj(char data): data {data} {}
+Obj::Obj(double data): data {Number::inexact(data)} {}
+Obj::Obj(Number data): data {data} {}
 Obj::Obj(Symbol data): data {data} {}
 Obj::Obj(String *data): data {data} {}
 Obj::Obj(Cons *data): data {data} {}
@@ -36,12 +37,12 @@ bool Obj::is_bool() const {
   return std::holds_alternative<bool>(data);
 }
 
-bool Obj::is_number() const {
-  return std::holds_alternative<double>(data);
-}
-
 bool Obj::is_char() const {
   return std::holds_alternative<char>(data);
+}
+
+bool Obj::is_number() const {
+  return std::holds_alternative<Number>(data);
 }
 
 bool Obj::is_symbol() const {
@@ -80,12 +81,12 @@ bool Obj::as_bool() const {
   return std::get<bool>(data);
 }
 
-double Obj::as_number() const {
-  return std::get<double>(data);
-}
-
 char Obj::as_char() const {
   return get<char>(data);
+}
+
+Number Obj::as_number() const {
+  return std::get<Number>(data);
 }
 
 Symbol Obj::as_symbol() const {
@@ -114,6 +115,7 @@ Builtin *Obj::as_builtin() const {
 
 std::optional<HeapEntity *> Obj::heap_entity() const {
   switch (get_type()) {
+    case Type::Number: return as_number().heap_entity();
     case Type::String: return as_string();
     case Type::Cons: return as_cons();
     case Type::Vector: return as_vector();
@@ -142,8 +144,8 @@ bool Obj::equals(Obj other) const {
 
   switch (get_type()) {
     case Type::Bool: return as_bool() == other.as_bool();
-    case Type::Number: return as_number() == other.as_number();
     case Type::Char: return as_char() == other.as_char();
+    case Type::Number: return as_number().eqv(other.as_number());
     case Type::Symbol: return as_symbol() == other.as_symbol();
     case Type::Procedure: return as_procedure() == other.as_procedure();
     case Type::Builtin: return as_builtin() == other.as_builtin();
@@ -200,7 +202,7 @@ std::string Obj::stringify(bool quote) const {
       return as_bool() ? "#t" : "#f";
 
     case Type::Number:
-      return std::format("{}", as_number());
+      return as_number().to_string();
 
     case Type::Char: {
       char c = as_char();

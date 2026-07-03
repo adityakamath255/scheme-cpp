@@ -1,22 +1,32 @@
 #pragma once
-#include <vector>
-#include <string>
-#include <variant>
+#include <compare>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <variant>
+#include <vector>
 
+struct BigInt;
+class Number;
 struct Symbol;
 struct String;
 struct Cons;
 struct Vector;
-struct Procedure;
 struct Builtin;
+struct Procedure;
 struct Null {};
 struct Void {};
 
+class Obj;
+class Env;
+class Ctx;
+struct HeapEntity;
+struct ListProfile;
+
 using Value = std::variant<
   bool,
-  double,
   char,
+  Number,
   Symbol,
   String *,
   Cons *,
@@ -29,8 +39,8 @@ using Value = std::variant<
 
 enum class Type : size_t {
   Bool = 0,
-  Number,
   Char,
+  Number,
   Symbol,
   String,
   Cons,
@@ -41,14 +51,43 @@ enum class Type : size_t {
   Void
 };
 
-class Obj;
+class Number {
+private:
+  std::variant<int64_t, BigInt *, double> rep;
+  explicit Number(std::variant<int64_t, BigInt *, double> rep);
 
-class Env;
-class Ctx;
+public:
+  static Number exact(int64_t v, Ctx *ctx);
+  static Number inexact(double v);
+  static Number parse(std::string_view lexeme, Ctx *ctx);
 
-struct HeapEntity;
+  bool is_exact() const;
+  bool is_integer() const;
+  bool is_zero() const;
+  bool is_even() const;
 
-struct ListProfile;
+  double to_double() const;
+
+  Number add(Number o, Ctx *ctx) const;
+  Number sub(Number o, Ctx *ctx) const;
+  Number mul(Number o, Ctx *ctx) const;
+  Number div(Number o, Ctx *ctx) const;
+  Number neg(Ctx *ctx) const;
+  Number abs(Ctx *ctx) const;
+  Number sqrt(Ctx *ctx) const;
+  Number quotient(Number o, Ctx *ctx) const;
+  Number remainder(Number o, Ctx *ctx) const;
+  Number modulo(Number o, Ctx *ctx) const;
+  Number expt(Number power, Ctx *ctx) const;
+  Number to_inexact() const;
+  Number to_exact(Ctx *ctx) const;
+
+  std::partial_ordering compare(Number o) const;
+  bool eqv(Number o) const;
+
+  std::string to_string() const;
+  std::optional<HeapEntity *> heap_entity() const;
+};
 
 struct Symbol {
   const std::string *ptr;
@@ -66,8 +105,9 @@ private:
 public:
   Obj(Value);
   Obj(bool);
-  Obj(double);
   Obj(char);
+  Obj(double);
+  Obj(Number);
   Obj(Symbol);
   Obj(String *);
   Obj(Cons *);
@@ -92,8 +132,8 @@ public:
   bool is_void() const;
 
   bool as_bool() const;
-  double as_number() const;
   char as_char() const;
+  Number as_number() const;
   Symbol as_symbol() const;
   String *as_string() const;
   Cons *as_cons() const;

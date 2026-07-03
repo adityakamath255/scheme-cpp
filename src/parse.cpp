@@ -2,7 +2,6 @@
 #include "ctx.hpp"
 #include <stdexcept>
 #include <cassert>
-#include <charconv>
 #include <limits>
 
 static std::string process_escapes(std::string_view raw) {
@@ -47,15 +46,7 @@ class Parser {
   }
 
   Obj parse_number(std::string_view lexeme) {
-    double val;
-    auto [ptr, ec] = std::from_chars(
-      lexeme.data(),
-      lexeme.data() + lexeme.size(),
-      val
-    );
-    (void)ptr;
-    assert(ec == std::errc{} && ptr == lexeme.data() + lexeme.size());
-    return val;
+    return Number::parse(lexeme, ctx);
   }
 
   Obj parse_quoted(std::string_view name) {

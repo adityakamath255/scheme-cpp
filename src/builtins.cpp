@@ -9,7 +9,8 @@
 #include <iostream>
 #include <sstream>
 #include <fstream>
-#include <charconv>
+#include <compare>
+#include <cstdint>
 
 // --- helpers ---
 
@@ -51,9 +52,19 @@ static void check_type(
   }
 }
 
-static double as_num(Obj obj, std::string_view context) {
+static Number as_num(Obj obj, std::string_view context) {
   check_type(obj, &Obj::is_number, "number", context);
   return obj.as_number();
+}
+
+static size_t as_index(Obj obj, std::string_view context) {
+  Number n = as_num(obj, context);
+  if (!n.is_integer() || n.to_double() < 0) {
+    throw std::runtime_error(
+      std::format("{}: expected non-negative integer", context)
+    );
+  }
+  return static_cast<size_t>(n.to_double());
 }
 
 static String *as_string(Obj obj, std::string_view context) {
@@ -76,15 +87,15 @@ static char as_char(Obj obj, std::string_view context) {
   return obj.as_char();
 }
 
-template<typename Comp>
+template<typename Ok>
 static Obj numeric_compare(
   const std::vector<Obj> &args,
   std::string_view name,
-  Comp comp
+  Ok ok
 ) {
   check_arity(args, name, 1, SIZE_MAX);
   for (size_t i = 1; i < args.size(); i += 1) {
-    if (!comp(as_num(args[i - 1], name), as_num(args[i], name))) {
+    if (!ok(as_num(args[i - 1], name).compare(as_num(args[i], name)))) {
       return false;
     }
   }
@@ -93,45 +104,45 @@ static Obj numeric_compare(
 
 // --- arithmetic ---
 
-static Obj builtin_add(const std::vector<Obj> &args, Ctx *) {
-  double sum = 0;
+static Obj builtin_add(const std::vector<Obj> &args, Ctx *ctx) {
+  Number sum = Number::exact(0, ctx);
   for (const auto &arg : args) {
-    sum += as_num(arg, "+");
+    sum = sum.add(as_num(arg, "+"), ctx);
   }
   return sum;
 }
 
-static Obj builtin_sub(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_sub(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "-", 1, SIZE_MAX);
+  Number result = as_num(args[0], "-");
   if (args.size() == 1) {
-    return -as_num(args[0], "-");
+    return result.neg(ctx);
   }
   else {
-    double result = as_num(args[0], "-");
     for (size_t i = 1; i < args.size(); i += 1) {
-      result -= as_num(args[i], "-");
+      result = result.sub(as_num(args[i], "-"), ctx);
     }
     return result;
   }
 }
 
-static Obj builtin_mul(const std::vector<Obj> &args, Ctx *) {
-  double product = 1;
+static Obj builtin_mul(const std::vector<Obj> &args, Ctx *ctx) {
+  Number product = Number::exact(1, ctx);
   for (const auto &arg : args) {
-    product *= as_num(arg, "*");
+    product = product.mul(as_num(arg, "*"), ctx);
   }
   return product;
 }
 
-static Obj builtin_div(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_div(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "/", 1, SIZE_MAX);
+  Number result = as_num(args[0], "/");
   if (args.size() == 1) {
-    return 1.0 / as_num(args[0], "/");
+    return Number::exact(1, ctx).div(result, ctx);
   }
   else {
-    double result = as_num(args[0], "/");
     for (size_t i = 1; i < args.size(); i += 1) {
-      result /= as_num(args[i], "/");
+      result = result.div(as_num(args[i], "/"), ctx);
     }
     return result;
   }
@@ -140,123 +151,173 @@ static Obj builtin_div(const std::vector<Obj> &args, Ctx *) {
 // --- comparison ---
 
 static Obj builtin_lt(const std::vector<Obj> &args, Ctx *) {
-  return numeric_compare(args, "<", [](double a, double b) { return a < b; });
+  return numeric_compare(args, "<", [](std::partial_ordering o) {
+    return o == std::partial_ordering::less;
+  });
 }
 
 static Obj builtin_gt(const std::vector<Obj> &args, Ctx *) {
-  return numeric_compare(args, ">", [](double a, double b) { return a > b; });
+  return numeric_compare(args, ">", [](std::partial_ordering o) {
+    return o == std::partial_ordering::greater;
+  });
 }
 
 static Obj builtin_num_eq(const std::vector<Obj> &args, Ctx *) {
-  return numeric_compare(args, "=", [](double a, double b) { return a == b; });
+  return numeric_compare(args, "=", [](std::partial_ordering o) {
+    return o == std::partial_ordering::equivalent;
+  });
 }
 
 static Obj builtin_le(const std::vector<Obj> &args, Ctx *) {
-  return numeric_compare(args, "<=", [](double a, double b) { return a <= b; });
+  return numeric_compare(args, "<=", [](std::partial_ordering o) {
+    return o == std::partial_ordering::less || o == std::partial_ordering::equivalent;
+  });
 }
 
 static Obj builtin_ge(const std::vector<Obj> &args, Ctx *) {
-  return numeric_compare(args, ">=", [](double a, double b) { return a >= b; });
+  return numeric_compare(args, ">=", [](std::partial_ordering o) {
+    return o == std::partial_ordering::greater || o == std::partial_ordering::equivalent;
+  });
 }
 
 // --- math ---
 
-static Obj builtin_abs(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_abs(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "abs", 1, 1);
-  return std::abs(as_num(args[0], "abs"));
+  return as_num(args[0], "abs").abs(ctx);
 }
 
-static Obj builtin_sqrt(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_sqrt(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "sqrt", 1, 1);
-  return std::sqrt(as_num(args[0], "sqrt"));
+  return as_num(args[0], "sqrt").sqrt(ctx);
 }
 
 static Obj builtin_sin(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "sin", 1, 1);
-  return std::sin(as_num(args[0], "sin"));
+  return std::sin(as_num(args[0], "sin").to_double());
 }
 
 static Obj builtin_cos(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "cos", 1, 1);
-  return std::cos(as_num(args[0], "cos"));
+  return std::cos(as_num(args[0], "cos").to_double());
 }
 
 static Obj builtin_log(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "log", 1, 1);
-  return std::log(as_num(args[0], "log"));
+  return std::log(as_num(args[0], "log").to_double());
 }
 
-static Obj builtin_expt(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_expt(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "expt", 2, 2);
-  return std::pow(as_num(args[0], "expt"), as_num(args[1], "expt"));
+  return as_num(args[0], "expt").expt(as_num(args[1], "expt"), ctx);
 }
 
 static Obj builtin_ceil(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "ceiling", 1, 1);
-  return std::ceil(as_num(args[0], "ceiling"));
+  Number n = as_num(args[0], "ceiling");
+  return n.is_exact() ? n : Number::inexact(std::ceil(n.to_double()));
 }
 
 static Obj builtin_floor(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "floor", 1, 1);
-  return std::floor(as_num(args[0], "floor"));
+  Number n = as_num(args[0], "floor");
+  return n.is_exact() ? n : Number::inexact(std::floor(n.to_double()));
 }
 
 static Obj builtin_round(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "round", 1, 1);
-  return std::round(as_num(args[0], "round"));
+  Number n = as_num(args[0], "round");
+  return n.is_exact() ? n : Number::inexact(std::round(n.to_double()));
 }
 
 static Obj builtin_max(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "max", 1, SIZE_MAX);
-  double result = as_num(args[0], "max");
+  Number best = as_num(args[0], "max");
+  bool inexact = !best.is_exact();
   for (size_t i = 1; i < args.size(); i += 1) {
-    result = std::max(result, as_num(args[i], "max"));
+    Number n = as_num(args[i], "max");
+    inexact = inexact || !n.is_exact();
+    if (n.compare(best) == std::partial_ordering::greater) {
+      best = n;
+    }
   }
-  return result;
+  return inexact ? best.to_inexact() : best;
 }
 
 static Obj builtin_min(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "min", 1, SIZE_MAX);
-  double result = as_num(args[0], "min");
+  Number best = as_num(args[0], "min");
+  bool inexact = !best.is_exact();
   for (size_t i = 1; i < args.size(); i += 1) {
-    result = std::min(result, as_num(args[i], "min"));
+    Number n = as_num(args[i], "min");
+    inexact = inexact || !n.is_exact();
+    if (n.compare(best) == std::partial_ordering::less) {
+      best = n;
+    }
   }
-  return result;
+  return inexact ? best.to_inexact() : best;
 }
 
-static Obj builtin_quotient(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_quotient(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "quotient", 2, 2);
-  return std::trunc(
-    as_num(args[0], "quotient") / as_num(args[1], "quotient")
-  );
+  return as_num(args[0], "quotient").quotient(as_num(args[1], "quotient"), ctx);
 }
 
-static Obj builtin_remainder(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_remainder(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "remainder", 2, 2);
-  return std::fmod(
-    as_num(args[0], "remainder"), as_num(args[1], "remainder")
-  );
+  return as_num(args[0], "remainder").remainder(as_num(args[1], "remainder"), ctx);
 }
 
-static Obj builtin_modulo(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_modulo(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "modulo", 2, 2);
-  double a = as_num(args[0], "modulo");
-  double b = as_num(args[1], "modulo");
-  double r = std::fmod(a, b);
-  if (r != 0 && ((r < 0) != (b < 0))) {
-    r += b;
-  }
-  return r;
+  return as_num(args[0], "modulo").modulo(as_num(args[1], "modulo"), ctx);
 }
 
 static Obj builtin_even(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "even?", 1, 1);
-  return std::fmod(as_num(args[0], "even?"), 2) == 0;
+  return as_num(args[0], "even?").is_even();
 }
 
 static Obj builtin_odd(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "odd?", 1, 1);
-  return std::fmod(as_num(args[0], "odd?"), 2) != 0;
+  return !as_num(args[0], "odd?").is_even();
+}
+
+static Obj builtin_is_zero(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "zero?", 1, 1);
+  return as_num(args[0], "zero?").is_zero();
+}
+
+static Obj builtin_is_positive(const std::vector<Obj> &args, Ctx *ctx) {
+  check_arity(args, "positive?", 1, 1);
+  return as_num(args[0], "positive?").compare(Number::exact(0, ctx))
+    == std::partial_ordering::greater;
+}
+
+static Obj builtin_is_negative(const std::vector<Obj> &args, Ctx *ctx) {
+  check_arity(args, "negative?", 1, 1);
+  return as_num(args[0], "negative?").compare(Number::exact(0, ctx))
+    == std::partial_ordering::less;
+}
+
+static Obj builtin_is_exact(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "exact?", 1, 1);
+  return as_num(args[0], "exact?").is_exact();
+}
+
+static Obj builtin_is_inexact(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "inexact?", 1, 1);
+  return !as_num(args[0], "inexact?").is_exact();
+}
+
+static Obj builtin_exact(const std::vector<Obj> &args, Ctx *ctx) {
+  check_arity(args, "exact", 1, 1);
+  return as_num(args[0], "exact").to_exact(ctx);
+}
+
+static Obj builtin_inexact(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "inexact", 1, 1);
+  return as_num(args[0], "inexact").to_inexact();
 }
 
 // --- predicates ---
@@ -278,9 +339,7 @@ static Obj builtin_is_number(const std::vector<Obj> &args, Ctx *) {
 
 static Obj builtin_is_integer(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "integer?", 1, 1);
-  return args[0].is_number()
-    && std::isfinite(args[0].as_number())
-    && std::trunc(args[0].as_number()) == args[0].as_number();
+  return args[0].is_number() && args[0].as_number().is_integer();
 }
 
 static Obj builtin_is_pair(const std::vector<Obj> &args, Ctx *) {
@@ -334,7 +393,7 @@ static Obj builtin_eq(const std::vector<Obj> &args, Ctx *) {
   else {
     switch (a.get_type()) {
       case Type::Bool: return a.as_bool() == b.as_bool();
-      case Type::Number: return a.as_number() == b.as_number();
+      case Type::Number: return a.as_number().eqv(b.as_number());
       case Type::Char: return a.as_char() == b.as_char();
       case Type::Symbol: return a.as_symbol() == b.as_symbol();
       case Type::String: return a.as_string() == b.as_string();
@@ -380,7 +439,7 @@ static Obj builtin_list(const std::vector<Obj> &args, Ctx *ctx) {
   return result;
 }
 
-static Obj builtin_length(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_length(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "length", 1, 1);
   if (!args[0].is_null() && !args[0].is_cons()) {
     throw std::runtime_error(
@@ -391,17 +450,13 @@ static Obj builtin_length(const std::vector<Obj> &args, Ctx *) {
   if (!profile.is_proper) {
     throw std::runtime_error("length: expected proper list");
   }
-  return static_cast<double>(profile.size);
+  return Number::exact(static_cast<int64_t>(profile.size), ctx);
 }
 
 static Obj builtin_list_ref(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "list-ref", 2, 2);
   check_type(args[0], &Obj::is_cons, "pair", "list-ref");
-  double raw = as_num(args[1], "list-ref");
-  if (raw < 0) {
-    throw std::runtime_error("list-ref: index must be non-negative");
-  }
-  size_t index = static_cast<size_t>(raw);
+  size_t index = as_index(args[1], "list-ref");
   Obj curr = args[0];
   for (size_t i = 0; i < index; i += 1) {
     if (!curr.is_cons()) {
@@ -429,19 +484,17 @@ static Obj builtin_set_cdr(const std::vector<Obj> &args, Ctx *) {
 
 // --- strings ---
 
-static Obj builtin_string_length(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_string_length(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "string-length", 1, 1);
-  return static_cast<double>(as_string(args[0], "string-length")->data.size());
+  return Number::exact(
+    static_cast<int64_t>(as_string(args[0], "string-length")->data.size()), ctx
+  );
 }
 
 static Obj builtin_string_ref(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "string-ref", 2, 2);
   const std::string &s = as_string(args[0], "string-ref")->data;
-  double raw = as_num(args[1], "string-ref");
-  if (raw < 0) {
-    throw std::runtime_error("string-ref: index must be non-negative");
-  }
-  size_t index = static_cast<size_t>(raw);
+  size_t index = as_index(args[1], "string-ref");
   if (index >= s.size()) {
     throw std::runtime_error("string-ref: index out of range");
   }
@@ -451,18 +504,10 @@ static Obj builtin_string_ref(const std::vector<Obj> &args, Ctx *) {
 static Obj builtin_substring(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "substring", 2, 3);
   const std::string &s = as_string(args[0], "substring")->data;
-  double raw_start = as_num(args[1], "substring");
-  if (raw_start < 0) {
-    throw std::runtime_error("substring: index must be non-negative");
-  }
-  size_t start = static_cast<size_t>(raw_start);
+  size_t start = as_index(args[1], "substring");
   size_t end = s.size();
   if (args.size() == 3) {
-    double raw_end = as_num(args[2], "substring");
-    if (raw_end < 0) {
-      throw std::runtime_error("substring: index must be non-negative");
-    }
-    end = static_cast<size_t>(raw_end);
+    end = as_index(args[2], "substring");
   }
   if (start > end || end > s.size()) {
     throw std::runtime_error("substring: index out of range");
@@ -496,15 +541,18 @@ static Obj builtin_char_eq(const std::vector<Obj> &args, Ctx *) {
   return as_char(args[0], "char=?") == as_char(args[1], "char=?");
 }
 
-static Obj builtin_char_to_integer(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_char_to_integer(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "char->integer", 1, 1);
-  return static_cast<double>(as_char(args[0], "char->integer"));
+  return Number::exact(
+    static_cast<int64_t>(
+      static_cast<unsigned char>(as_char(args[0], "char->integer"))
+    ), ctx
+  );
 }
 
 static Obj builtin_integer_to_char(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "integer->char", 1, 1);
-  double n = as_num(args[0], "integer->char");
-  return static_cast<char>(static_cast<int>(n));
+  return static_cast<char>(as_index(args[0], "integer->char"));
 }
 
 static Obj builtin_string_to_list(const std::vector<Obj> &args, Ctx *ctx) {
@@ -536,20 +584,18 @@ static Obj builtin_list_to_string(const std::vector<Obj> &args, Ctx *ctx) {
 
 static Obj builtin_number_to_string(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "number->string", 1, 1);
-  return ctx->alloc<String>(
-    std::format("{}", as_num(args[0], "number->string"))
-  );
+  return ctx->alloc<String>(as_num(args[0], "number->string").to_string());
 }
 
-static Obj builtin_string_to_number(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_string_to_number(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "string->number", 1, 1);
   const std::string &s = as_string(args[0], "string->number")->data;
-  double val;
-  auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), val);
-  if (ec != std::errc{} || ptr != s.data() + s.size()) {
+  try {
+    return Number::parse(s, ctx);
+  }
+  catch (const std::runtime_error &) {
     return false;
   }
-  return val;
 }
 
 static Obj builtin_symbol_to_string(const std::vector<Obj> &args, Ctx *ctx) {
@@ -619,38 +665,37 @@ static Obj builtin_vector(const std::vector<Obj> &args, Ctx *ctx) {
 
 static Obj builtin_make_vector(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "make-vector", 1, 2);
-  double n = as_num(args[0], "make-vector");
-  if (n < 0 || n != std::floor(n)) {
-    throw std::runtime_error("make-vector: expected non-negative integer");
-  }
-  Obj fill = args.size() > 1 ? args[1] : Obj(0.0);
-  return ctx->alloc<Vector>(std::vector<Obj>(static_cast<size_t>(n), fill));
+  size_t n = as_index(args[0], "make-vector");
+  Obj fill = args.size() > 1 ? args[1] : Obj(Number::exact(0, ctx));
+  return ctx->alloc<Vector>(std::vector<Obj>(n, fill));
 }
 
 static Obj builtin_vector_ref(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "vector-ref", 2, 2);
   Vector *v = as_vector(args[0], "vector-ref");
-  double i = as_num(args[1], "vector-ref");
-  if (i < 0 || i != std::floor(i) || static_cast<size_t>(i) >= v->data.size()) {
+  size_t i = as_index(args[1], "vector-ref");
+  if (i >= v->data.size()) {
     throw std::runtime_error("vector-ref: index out of range");
   }
-  return v->data[static_cast<size_t>(i)];
+  return v->data[i];
 }
 
 static Obj builtin_vector_set(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "vector-set!", 3, 3);
   Vector *v = as_vector(args[0], "vector-set!");
-  double i = as_num(args[1], "vector-set!");
-  if (i < 0 || i != std::floor(i) || static_cast<size_t>(i) >= v->data.size()) {
+  size_t i = as_index(args[1], "vector-set!");
+  if (i >= v->data.size()) {
     throw std::runtime_error("vector-set!: index out of range");
   }
-  v->data[static_cast<size_t>(i)] = args[2];
+  v->data[i] = args[2];
   return Void{};
 }
 
-static Obj builtin_vector_length(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_vector_length(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "vector-length", 1, 1);
-  return static_cast<double>(as_vector(args[0], "vector-length")->data.size());
+  return Number::exact(
+    static_cast<int64_t>(as_vector(args[0], "vector-length")->data.size()), ctx
+  );
 }
 
 static Obj builtin_vector_to_list(const std::vector<Obj> &args, Ctx *ctx) {
@@ -729,7 +774,7 @@ static Obj builtin_exit(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "exit", 0, 1);
   int code = 0;
   if (!args.empty()) {
-    code = static_cast<int>(as_num(args[0], "exit"));
+    code = static_cast<int>(as_index(args[0], "exit"));
   }
   std::exit(code);
 }
@@ -806,6 +851,15 @@ void install_builtins(Ctx *ctx) {
   install("modulo", builtin_modulo);
   install("even?", builtin_even);
   install("odd?", builtin_odd);
+  install("zero?", builtin_is_zero);
+  install("positive?", builtin_is_positive);
+  install("negative?", builtin_is_negative);
+  install("exact?", builtin_is_exact);
+  install("inexact?", builtin_is_inexact);
+  install("exact", builtin_exact);
+  install("inexact", builtin_inexact);
+  install("inexact->exact", builtin_exact);
+  install("exact->inexact", builtin_inexact);
 
   install("null?", builtin_is_null);
   install("boolean?", builtin_is_boolean);
@@ -821,6 +875,7 @@ void install_builtins(Ctx *ctx) {
   install("void", builtin_void);
 
   install("eq?", builtin_eq);
+  install("eqv?", builtin_eq);
   install("equal?", builtin_equal);
 
   install("car", builtin_car);

@@ -4,7 +4,12 @@ file(GLOB_RECURSE SCHEME_CORE_SOURCES CONFIGURE_DEPENDS ${SCHEME_ROOT}/src/*.cpp
 function(scheme_core target)
   target_sources(${target} PRIVATE ${SCHEME_CORE_SOURCES})
   target_include_directories(${target} PRIVATE ${SCHEME_ROOT}/include)
-  target_compile_features(${target} PRIVATE cxx_std_20)
+  target_compile_features(${target} PRIVATE cxx_std_23)
   target_compile_options(${target} PRIVATE -Wall -Wextra)
   set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF)
+
+  if(NOT TARGET libtommath)
+    add_subdirectory(${SCHEME_ROOT}/third_party/libtommath ${CMAKE_BINARY_DIR}/libtommath)
+  endif()
+  target_link_libraries(${target} PRIVATE libtommath)
 endfunction()
