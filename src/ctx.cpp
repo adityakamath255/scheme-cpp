@@ -13,6 +13,7 @@ Ctx::Ctx():
   sym_begin {intern("begin")},
   sym_let {intern("let")},
   sym_letstar {intern("let*")},
+  sym_letrec {intern("letrec")},
   sym_cond {intern("cond")},
   sym_and {intern("and")},
   sym_or {intern("or")},
@@ -20,7 +21,10 @@ Ctx::Ctx():
   sym_unquote {intern("unquote")},
   sym_unquote_splicing {intern("unquote-splicing")},
   sym_else {intern("else")},
-  sym_define_macro {intern("define-macro")}
+  sym_define_macro {intern("define-macro")},
+  sym_when {intern("when")},
+  sym_unless {intern("unless")},
+  sym_case {intern("case")}
 {}
 
 Ctx::~Ctx() {

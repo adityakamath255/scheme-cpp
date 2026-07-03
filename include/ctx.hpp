@@ -27,7 +27,8 @@ public:
   void recycle();
 
   Symbol sym_quote, sym_if, sym_define, sym_set, sym_lambda,
-         sym_begin, sym_let, sym_letstar, sym_cond, sym_and,
-         sym_or, sym_quasiquote, sym_unquote, sym_unquote_splicing,
-         sym_else, sym_define_macro;
+         sym_begin, sym_let, sym_letstar, sym_letrec, sym_cond,
+         sym_and, sym_or, sym_quasiquote, sym_unquote,
+         sym_unquote_splicing, sym_else, sym_define_macro,
+         sym_when, sym_unless, sym_case;
 };

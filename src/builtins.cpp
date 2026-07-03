@@ -56,13 +56,24 @@ static double as_num(Obj obj, std::string_view context) {
   return obj.as_number();
 }
 
-static void install(
-  Env *env,
-  Ctx *ctx,
-  std::string_view name,
-  Builtin::Fn fn
-) {
-  env->define(ctx->intern(name), ctx->alloc<Builtin>(fn));
+static String *as_string(Obj obj, std::string_view context) {
+  check_type(obj, &Obj::is_string, "string", context);
+  return obj.as_string();
+}
+
+static Cons *as_cons(Obj obj, std::string_view context) {
+  check_type(obj, &Obj::is_cons, "pair", context);
+  return obj.as_cons();
+}
+
+static Vector *as_vector(Obj obj, std::string_view context) {
+  check_type(obj, &Obj::is_vector, "vector", context);
+  return obj.as_vector();
+}
+
+static char as_char(Obj obj, std::string_view context) {
+  check_type(obj, &Obj::is_char, "char", context);
+  return obj.as_char();
 }
 
 template<typename Comp>
@@ -347,14 +358,12 @@ static Obj builtin_equal(const std::vector<Obj> &args, Ctx *) {
 
 static Obj builtin_car(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "car", 1, 1);
-  check_type(args[0], &Obj::is_cons, "pair", "car");
-  return args[0].car();
+  return as_cons(args[0], "car")->car;
 }
 
 static Obj builtin_cdr(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "cdr", 1, 1);
-  check_type(args[0], &Obj::is_cons, "pair", "cdr");
-  return args[0].cdr();
+  return as_cons(args[0], "cdr")->cdr;
 }
 
 static Obj builtin_cons(const std::vector<Obj> &args, Ctx *ctx) {
@@ -408,15 +417,13 @@ static Obj builtin_list_ref(const std::vector<Obj> &args, Ctx *) {
 
 static Obj builtin_set_car(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "set-car!", 2, 2);
-  check_type(args[0], &Obj::is_cons, "pair", "set-car!");
-  args[0].as_cons()->car = args[1];
+  as_cons(args[0], "set-car!")->car = args[1];
   return Void{};
 }
 
 static Obj builtin_set_cdr(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "set-cdr!", 2, 2);
-  check_type(args[0], &Obj::is_cons, "pair", "set-cdr!");
-  args[0].as_cons()->cdr = args[1];
+  as_cons(args[0], "set-cdr!")->cdr = args[1];
   return Void{};
 }
 
@@ -424,14 +431,12 @@ static Obj builtin_set_cdr(const std::vector<Obj> &args, Ctx *) {
 
 static Obj builtin_string_length(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "string-length", 1, 1);
-  check_type(args[0], &Obj::is_string, "string", "string-length");
-  return static_cast<double>(args[0].as_string()->data.size());
+  return static_cast<double>(as_string(args[0], "string-length")->data.size());
 }
 
 static Obj builtin_string_ref(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "string-ref", 2, 2);
-  check_type(args[0], &Obj::is_string, "string", "string-ref");
-  const std::string &s = args[0].as_string()->data;
+  const std::string &s = as_string(args[0], "string-ref")->data;
   double raw = as_num(args[1], "string-ref");
   if (raw < 0) {
     throw std::runtime_error("string-ref: index must be non-negative");
@@ -445,8 +450,7 @@ static Obj builtin_string_ref(const std::vector<Obj> &args, Ctx *) {
 
 static Obj builtin_substring(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "substring", 2, 3);
-  check_type(args[0], &Obj::is_string, "string", "substring");
-  const std::string &s = args[0].as_string()->data;
+  const std::string &s = as_string(args[0], "substring")->data;
   double raw_start = as_num(args[1], "substring");
   if (raw_start < 0) {
     throw std::runtime_error("substring: index must be non-negative");
@@ -469,17 +473,15 @@ static Obj builtin_substring(const std::vector<Obj> &args, Ctx *ctx) {
 static Obj builtin_string_append(const std::vector<Obj> &args, Ctx *ctx) {
   std::string result;
   for (const auto &arg : args) {
-    check_type(arg, &Obj::is_string, "string", "string-append");
-    result += arg.as_string()->data;
+    result += as_string(arg, "string-append")->data;
   }
   return ctx->alloc<String>(std::move(result));
 }
 
 static Obj builtin_string_eq(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "string=?", 2, 2);
-  check_type(args[0], &Obj::is_string, "string", "string=?");
-  check_type(args[1], &Obj::is_string, "string", "string=?");
-  return args[0].as_string()->data == args[1].as_string()->data;
+  return as_string(args[0], "string=?")->data
+    == as_string(args[1], "string=?")->data;
 }
 
 // --- chars ---
@@ -491,15 +493,12 @@ static Obj builtin_is_char(const std::vector<Obj> &args, Ctx *) {
 
 static Obj builtin_char_eq(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "char=?", 2, 2);
-  check_type(args[0], &Obj::is_char, "char", "char=?");
-  check_type(args[1], &Obj::is_char, "char", "char=?");
-  return args[0].as_char() == args[1].as_char();
+  return as_char(args[0], "char=?") == as_char(args[1], "char=?");
 }
 
 static Obj builtin_char_to_integer(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "char->integer", 1, 1);
-  check_type(args[0], &Obj::is_char, "char", "char->integer");
-  return static_cast<double>(args[0].as_char());
+  return static_cast<double>(as_char(args[0], "char->integer"));
 }
 
 static Obj builtin_integer_to_char(const std::vector<Obj> &args, Ctx *) {
@@ -510,8 +509,7 @@ static Obj builtin_integer_to_char(const std::vector<Obj> &args, Ctx *) {
 
 static Obj builtin_string_to_list(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "string->list", 1, 1);
-  check_type(args[0], &Obj::is_string, "string", "string->list");
-  const std::string &s = args[0].as_string()->data;
+  const std::string &s = as_string(args[0], "string->list")->data;
   Obj result = Null{};
   for (size_t i = s.size(); i > 0; ) {
     i -= 1;
@@ -525,8 +523,7 @@ static Obj builtin_list_to_string(const std::vector<Obj> &args, Ctx *ctx) {
   std::string result;
   Obj lst = args[0];
   while (lst.is_cons()) {
-    check_type(lst.car(), &Obj::is_char, "char", "list->string");
-    result += lst.car().as_char();
+    result += as_char(lst.car(), "list->string");
     lst = lst.cdr();
   }
   if (!lst.is_null()) {
@@ -546,8 +543,7 @@ static Obj builtin_number_to_string(const std::vector<Obj> &args, Ctx *ctx) {
 
 static Obj builtin_string_to_number(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "string->number", 1, 1);
-  check_type(args[0], &Obj::is_string, "string", "string->number");
-  const std::string &s = args[0].as_string()->data;
+  const std::string &s = as_string(args[0], "string->number")->data;
   double val;
   auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), val);
   if (ec != std::errc{} || ptr != s.data() + s.size()) {
@@ -564,8 +560,7 @@ static Obj builtin_symbol_to_string(const std::vector<Obj> &args, Ctx *ctx) {
 
 static Obj builtin_string_to_symbol(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "string->symbol", 1, 1);
-  check_type(args[0], &Obj::is_string, "string", "string->symbol");
-  return ctx->intern(args[0].as_string()->data);
+  return ctx->intern(as_string(args[0], "string->symbol")->data);
 }
 
 // --- i/o ---
@@ -634,8 +629,7 @@ static Obj builtin_make_vector(const std::vector<Obj> &args, Ctx *ctx) {
 
 static Obj builtin_vector_ref(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "vector-ref", 2, 2);
-  check_type(args[0], &Obj::is_vector, "vector", "vector-ref");
-  Vector *v = args[0].as_vector();
+  Vector *v = as_vector(args[0], "vector-ref");
   double i = as_num(args[1], "vector-ref");
   if (i < 0 || i != std::floor(i) || static_cast<size_t>(i) >= v->data.size()) {
     throw std::runtime_error("vector-ref: index out of range");
@@ -645,8 +639,7 @@ static Obj builtin_vector_ref(const std::vector<Obj> &args, Ctx *) {
 
 static Obj builtin_vector_set(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "vector-set!", 3, 3);
-  check_type(args[0], &Obj::is_vector, "vector", "vector-set!");
-  Vector *v = args[0].as_vector();
+  Vector *v = as_vector(args[0], "vector-set!");
   double i = as_num(args[1], "vector-set!");
   if (i < 0 || i != std::floor(i) || static_cast<size_t>(i) >= v->data.size()) {
     throw std::runtime_error("vector-set!: index out of range");
@@ -657,14 +650,12 @@ static Obj builtin_vector_set(const std::vector<Obj> &args, Ctx *) {
 
 static Obj builtin_vector_length(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "vector-length", 1, 1);
-  check_type(args[0], &Obj::is_vector, "vector", "vector-length");
-  return static_cast<double>(args[0].as_vector()->data.size());
+  return static_cast<double>(as_vector(args[0], "vector-length")->data.size());
 }
 
 static Obj builtin_vector_to_list(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "vector->list", 1, 1);
-  check_type(args[0], &Obj::is_vector, "vector", "vector->list");
-  Vector *v = args[0].as_vector();
+  Vector *v = as_vector(args[0], "vector->list");
   Obj result = Null{};
   for (size_t i = v->data.size(); i > 0; ) {
     i -= 1;
@@ -706,11 +697,11 @@ static Obj builtin_eval(const std::vector<Obj> &args, Ctx *ctx) {
 
 static Obj builtin_load(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "load", 1, 1);
-  check_type(args[0], &Obj::is_string, "string", "load");
+  const std::string &path = as_string(args[0], "load")->data;
 
-  std::ifstream file(args[0].as_string()->data);
+  std::ifstream file(path);
   if (!file) {
-    throw std::runtime_error("load: could not open " + args[0].as_string()->data);
+    throw std::runtime_error("load: could not open " + path);
   }
   std::ostringstream buf;
   buf << file.rdbuf();
@@ -731,16 +722,14 @@ static Obj builtin_load(const std::vector<Obj> &args, Ctx *ctx) {
 
 static Obj builtin_file_exists(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "file-exists?", 1, 1);
-  check_type(args[0], &Obj::is_string, "string", "file-exists?");
-  return Obj(std::ifstream(args[0].as_string()->data).good());
+  return Obj(std::ifstream(as_string(args[0], "file-exists?")->data).good());
 }
 
 static Obj builtin_exit(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "exit", 0, 1);
   int code = 0;
   if (!args.empty()) {
-    check_type(args[0], &Obj::is_number, "number", "exit");
-    code = static_cast<int>(args[0].as_number());
+    code = static_cast<int>(as_num(args[0], "exit"));
   }
   std::exit(code);
 }
@@ -786,108 +775,99 @@ static Obj builtin_apply(const std::vector<Obj> &args, Ctx *ctx) {
 
 void install_builtins(Ctx *ctx) {
   Env *env = ctx->global_env;
+  auto install = [&](std::string_view name, Builtin::Fn fn) {
+    env->define(ctx->intern(name), ctx->alloc<Builtin>(fn));
+  };
 
-  // arithmetic
-  install(env, ctx, "+", builtin_add);
-  install(env, ctx, "-", builtin_sub);
-  install(env, ctx, "*", builtin_mul);
-  install(env, ctx, "/", builtin_div);
+  install("+", builtin_add);
+  install("-", builtin_sub);
+  install("*", builtin_mul);
+  install("/", builtin_div);
 
-  // comparison
-  install(env, ctx, "<", builtin_lt);
-  install(env, ctx, ">", builtin_gt);
-  install(env, ctx, "=", builtin_num_eq);
-  install(env, ctx, "<=", builtin_le);
-  install(env, ctx, ">=", builtin_ge);
+  install("<", builtin_lt);
+  install(">", builtin_gt);
+  install("=", builtin_num_eq);
+  install("<=", builtin_le);
+  install(">=", builtin_ge);
 
-  // math
-  install(env, ctx, "abs", builtin_abs);
-  install(env, ctx, "sqrt", builtin_sqrt);
-  install(env, ctx, "sin", builtin_sin);
-  install(env, ctx, "cos", builtin_cos);
-  install(env, ctx, "log", builtin_log);
-  install(env, ctx, "expt", builtin_expt);
-  install(env, ctx, "ceiling", builtin_ceil);
-  install(env, ctx, "floor", builtin_floor);
-  install(env, ctx, "round", builtin_round);
-  install(env, ctx, "max", builtin_max);
-  install(env, ctx, "min", builtin_min);
-  install(env, ctx, "quotient", builtin_quotient);
-  install(env, ctx, "remainder", builtin_remainder);
-  install(env, ctx, "modulo", builtin_modulo);
-  install(env, ctx, "even?", builtin_even);
-  install(env, ctx, "odd?", builtin_odd);
+  install("abs", builtin_abs);
+  install("sqrt", builtin_sqrt);
+  install("sin", builtin_sin);
+  install("cos", builtin_cos);
+  install("log", builtin_log);
+  install("expt", builtin_expt);
+  install("ceiling", builtin_ceil);
+  install("floor", builtin_floor);
+  install("round", builtin_round);
+  install("max", builtin_max);
+  install("min", builtin_min);
+  install("quotient", builtin_quotient);
+  install("remainder", builtin_remainder);
+  install("modulo", builtin_modulo);
+  install("even?", builtin_even);
+  install("odd?", builtin_odd);
 
-  // predicates
-  install(env, ctx, "null?", builtin_is_null);
-  install(env, ctx, "boolean?", builtin_is_boolean);
-  install(env, ctx, "number?", builtin_is_number);
-  install(env, ctx, "integer?", builtin_is_integer);
-  install(env, ctx, "pair?", builtin_is_pair);
-  install(env, ctx, "symbol?", builtin_is_symbol);
-  install(env, ctx, "string?", builtin_is_string);
-  install(env, ctx, "procedure?", builtin_is_procedure);
-  install(env, ctx, "list?", builtin_is_list);
-  install(env, ctx, "void?", builtin_is_void);
-  install(env, ctx, "not", builtin_not);
-  install(env, ctx, "void", builtin_void);
+  install("null?", builtin_is_null);
+  install("boolean?", builtin_is_boolean);
+  install("number?", builtin_is_number);
+  install("integer?", builtin_is_integer);
+  install("pair?", builtin_is_pair);
+  install("symbol?", builtin_is_symbol);
+  install("string?", builtin_is_string);
+  install("procedure?", builtin_is_procedure);
+  install("list?", builtin_is_list);
+  install("void?", builtin_is_void);
+  install("not", builtin_not);
+  install("void", builtin_void);
 
-  // equality
-  install(env, ctx, "eq?", builtin_eq);
-  install(env, ctx, "equal?", builtin_equal);
+  install("eq?", builtin_eq);
+  install("equal?", builtin_equal);
 
-  // data
-  install(env, ctx, "car", builtin_car);
-  install(env, ctx, "cdr", builtin_cdr);
-  install(env, ctx, "cons", builtin_cons);
-  install(env, ctx, "list", builtin_list);
-  install(env, ctx, "length", builtin_length);
-  install(env, ctx, "list-ref", builtin_list_ref);
-  install(env, ctx, "set-car!", builtin_set_car);
-  install(env, ctx, "set-cdr!", builtin_set_cdr);
+  install("car", builtin_car);
+  install("cdr", builtin_cdr);
+  install("cons", builtin_cons);
+  install("list", builtin_list);
+  install("length", builtin_length);
+  install("list-ref", builtin_list_ref);
+  install("set-car!", builtin_set_car);
+  install("set-cdr!", builtin_set_cdr);
 
-  // strings
-  install(env, ctx, "string-length", builtin_string_length);
-  install(env, ctx, "string-ref", builtin_string_ref);
-  install(env, ctx, "substring", builtin_substring);
-  install(env, ctx, "string-append", builtin_string_append);
-  install(env, ctx, "string=?", builtin_string_eq);
+  install("string-length", builtin_string_length);
+  install("string-ref", builtin_string_ref);
+  install("substring", builtin_substring);
+  install("string-append", builtin_string_append);
+  install("string=?", builtin_string_eq);
 
-  // chars
-  install(env, ctx, "char?", builtin_is_char);
-  install(env, ctx, "char=?", builtin_char_eq);
-  install(env, ctx, "char->integer", builtin_char_to_integer);
-  install(env, ctx, "integer->char", builtin_integer_to_char);
-  install(env, ctx, "string->list", builtin_string_to_list);
-  install(env, ctx, "list->string", builtin_list_to_string);
+  install("char?", builtin_is_char);
+  install("char=?", builtin_char_eq);
+  install("char->integer", builtin_char_to_integer);
+  install("integer->char", builtin_integer_to_char);
+  install("string->list", builtin_string_to_list);
+  install("list->string", builtin_list_to_string);
 
-  // conversion
-  install(env, ctx, "number->string", builtin_number_to_string);
-  install(env, ctx, "string->number", builtin_string_to_number);
-  install(env, ctx, "symbol->string", builtin_symbol_to_string);
-  install(env, ctx, "string->symbol", builtin_string_to_symbol);
+  install("number->string", builtin_number_to_string);
+  install("string->number", builtin_string_to_number);
+  install("symbol->string", builtin_symbol_to_string);
+  install("string->symbol", builtin_string_to_symbol);
 
-  // vectors
-  install(env, ctx, "vector?", builtin_is_vector);
-  install(env, ctx, "vector", builtin_vector);
-  install(env, ctx, "make-vector", builtin_make_vector);
-  install(env, ctx, "vector-ref", builtin_vector_ref);
-  install(env, ctx, "vector-set!", builtin_vector_set);
-  install(env, ctx, "vector-length", builtin_vector_length);
-  install(env, ctx, "vector->list", builtin_vector_to_list);
-  install(env, ctx, "list->vector", builtin_list_to_vector);
+  install("vector?", builtin_is_vector);
+  install("vector", builtin_vector);
+  install("make-vector", builtin_make_vector);
+  install("vector-ref", builtin_vector_ref);
+  install("vector-set!", builtin_vector_set);
+  install("vector-length", builtin_vector_length);
+  install("vector->list", builtin_vector_to_list);
+  install("list->vector", builtin_list_to_vector);
 
-  // i/o
-  install(env, ctx, "display", builtin_display);
-  install(env, ctx, "write", builtin_write);
-  install(env, ctx, "newline", builtin_newline);
-  install(env, ctx, "read", builtin_read);
+  install("display", builtin_display);
+  install("write", builtin_write);
+  install("newline", builtin_newline);
+  install("read", builtin_read);
 
-  // misc
-  install(env, ctx, "error", builtin_error);
-  install(env, ctx, "eval", builtin_eval);
-  install(env, ctx, "apply", builtin_apply);
-  install(env, ctx, "load", builtin_load);
-  install(env, ctx, "file-exists?", builtin_file_exists);
-  install(env, ctx, "exit", builtin_exit);
+  install("error", builtin_error);
+  install("eval", builtin_eval);
+  install("apply", builtin_apply);
+  install("load", builtin_load);
+  install("file-exists?", builtin_file_exists);
+  install("exit", builtin_exit);
 }

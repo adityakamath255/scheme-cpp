@@ -341,24 +341,128 @@ static EvalResult eval_begin(Obj rest, Env *env, Ctx *ctx) {
   }
 }
 
-static EvalResult eval_let(Obj rest, Env *env, Ctx *ctx, bool sequential) {
-  check_arity(rest, sequential ? "let*" : "let", 2, SIZE_MAX);
+enum class LetKind { Plain, Star, Rec };
+
+static EvalResult eval_let(Obj rest, Env *env, Ctx *ctx, LetKind kind) {
+  const char *name =
+    kind == LetKind::Star ? "let*"
+    : kind == LetKind::Rec ? "letrec"
+    : "let";
+  check_arity(rest, name, 2, SIZE_MAX);
   Obj bindings = rest.car();
   Obj body_list = rest.cdr();
   Env *new_env = ctx->alloc<LocalEnv>(env);
 
-  while (bindings.is_cons()) {
-    Obj binding = bindings.car();
+  if (kind == LetKind::Rec) {
+    for (Obj b = bindings; b.is_cons(); b = b.cdr()) {
+      if (!b.car().car().is_symbol()) {
+        throw std::runtime_error("letrec: binding name must be a symbol");
+      }
+      new_env->define(b.car().car().as_symbol(), Void{});
+    }
+  }
+
+  Env *init_env = kind == LetKind::Plain ? env : new_env;
+
+  for (Obj b = bindings; b.is_cons(); b = b.cdr()) {
+    Obj binding = b.car();
     if (!binding.car().is_symbol()) {
-      throw std::runtime_error("let: binding name must be a symbol");
+      throw std::runtime_error(
+        std::string(name) + ": binding name must be a symbol"
+      );
     }
     Symbol sym = binding.car().as_symbol();
-    Obj val = eval(binding.cdr().car(), sequential ? new_env : env, ctx);
-    new_env->define(sym, val);
-    bindings = bindings.cdr();
+    Obj val = eval(binding.cdr().car(), init_env, ctx);
+    if (kind == LetKind::Rec) {
+      new_env->set(sym, val);
+    } else {
+      new_env->define(sym, val);
+    }
   }
 
   return eval_body(body_list, new_env, ctx);
+}
+
+static EvalResult eval_named_let(Obj rest, Env *env, Ctx *ctx) {
+  Symbol name = rest.car().as_symbol();
+  Obj spec = rest.cdr();
+  check_arity(spec, "let", 2, SIZE_MAX);
+  Obj bindings = spec.car();
+  Obj body = wrap_body(spec.cdr(), ctx);
+
+  std::vector<Symbol> params;
+  std::vector<Obj> args;
+  for (Obj b = bindings; b.is_cons(); b = b.cdr()) {
+    Obj binding = b.car();
+    if (!binding.car().is_symbol()) {
+      throw std::runtime_error("let: binding name must be a symbol");
+    }
+    params.push_back(binding.car().as_symbol());
+    args.push_back(eval(binding.cdr().car(), env, ctx));
+  }
+
+  Env *loop_env = ctx->alloc<LocalEnv>(env);
+  Procedure *proc = ctx->alloc<Procedure>(
+    std::move(params), body, loop_env, false, false
+  );
+  loop_env->define(name, proc);
+
+  Env *call_env = ctx->alloc<LocalEnv>(loop_env);
+  bind_args(call_env, proc->params, args, false, ctx);
+  return TailCall{proc->body, call_env};
+}
+
+static EvalResult eval_when(Obj rest, Env *env, Ctx *ctx, bool negate) {
+  check_arity(rest, negate ? "unless" : "when", 1, SIZE_MAX);
+  Obj test = eval(rest.car(), env, ctx);
+  bool go = negate ? test.is_false() : test.is_true();
+  Obj body = rest.cdr();
+
+  if (!go || body.is_null()) {
+    return Obj(Void{});
+  }
+  return eval_body(body, env, ctx);
+}
+
+static EvalResult eval_case(Obj rest, Env *env, Ctx *ctx) {
+  check_arity(rest, "case", 1, SIZE_MAX);
+  Obj key = eval(rest.car(), env, ctx);
+  Obj clauses = rest.cdr();
+
+  while (clauses.is_cons()) {
+    Obj clause = clauses.car();
+    if (!clause.is_cons()) {
+      throw std::runtime_error("case: clause must be a list");
+    }
+
+    Obj datums = clause.car();
+    Obj body = clause.cdr();
+
+    bool is_else = (
+      datums.is_symbol()
+      && datums.as_symbol() == ctx->sym_else
+    );
+
+    if (is_else && clauses.cdr().is_cons()) {
+      throw std::runtime_error("case: else must be the last clause");
+    }
+
+    bool matched = is_else;
+    for (Obj d = datums; !matched && d.is_cons(); d = d.cdr()) {
+      matched = key.equals(d.car());
+    }
+
+    if (matched) {
+      if (body.is_null()) {
+        return Obj(Void{});
+      }
+      return eval_body(body, env, ctx);
+    }
+
+    clauses = clauses.cdr();
+  }
+
+  return Obj(Void{});
 }
 
 static EvalResult eval_cond(Obj clauses, Env *env, Ctx *ctx) {
@@ -505,10 +609,25 @@ static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
         return eval_begin(rest, env, ctx);
       }
       else if (sym == ctx->sym_let) {
-        return eval_let(rest, env, ctx, false);
+        if (rest.is_cons() && rest.car().is_symbol()) {
+          return eval_named_let(rest, env, ctx);
+        }
+        return eval_let(rest, env, ctx, LetKind::Plain);
       }
       else if (sym == ctx->sym_letstar) {
-        return eval_let(rest, env, ctx, true);
+        return eval_let(rest, env, ctx, LetKind::Star);
+      }
+      else if (sym == ctx->sym_letrec) {
+        return eval_let(rest, env, ctx, LetKind::Rec);
+      }
+      else if (sym == ctx->sym_when) {
+        return eval_when(rest, env, ctx, false);
+      }
+      else if (sym == ctx->sym_unless) {
+        return eval_when(rest, env, ctx, true);
+      }
+      else if (sym == ctx->sym_case) {
+        return eval_case(rest, env, ctx);
       }
       else if (sym == ctx->sym_cond) {
         return eval_cond(rest, env, ctx);
