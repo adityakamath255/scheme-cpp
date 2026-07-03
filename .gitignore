@@ -1,6 +1,7 @@
-build/
-context/
-.cache/
-web/dev.sh
-web/app.js
+/cli/build
+/context/
+/.cache/
 /emsdk/
+/web/build
+/web/dev.sh
+/web/app.js

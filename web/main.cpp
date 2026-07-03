@@ -7,6 +7,12 @@
 #include <emscripten.h>
 #include <string>
 
+emscripten::val status(const char *kind) {
+  emscripten::val o = emscripten::val::object();
+  o.set("kind", std::string(kind));
+  return o;
+};
+
 class Session {
   Ctx ctx;
 
@@ -16,29 +22,22 @@ public:
     run_all(preamble, &ctx);
   }
 
-  emscripten::val step(const std::string &source) {
-    using emscripten::val;
-    auto tagged = [](const char *kind) {
-      val o = val::object();
-      o.set("kind", std::string(kind));
-      return o;
-    };
+  emscripten::val run(const std::string &source, emscripten::val emit) {
+    std::string_view rest = source;
     try {
-      ReadEval r = read_eval(source, &ctx);
-      if (auto *e = std::get_if<Evaluated>(&r)) {
-        val o = tagged("value");
-        o.set("rest", std::string(e->rest));
-        if (!e->value.is_void()) {
-          o.set("value", e->value.stringify(true));
-        }
-        return o;
+      for (;;) {
+        ReadEval r = read_eval(rest, &ctx);
+        if (std::holds_alternative<Incomplete>(r)) return status("incomplete");
+        if (std::holds_alternative<Exhausted>(r)) return status("ok");
+        auto &e = std::get<Evaluated>(r);
+        if (!e.value.is_void()) emit(e.value.stringify(true));
+        rest = e.rest;
       }
-      return tagged(std::holds_alternative<Incomplete>(r) ? "incomplete"
-                                                          : "exhausted");
     }
     catch (const std::exception &e) {
-      EM_ASM({ throw new Error(UTF8ToString($0)); }, e.what());
-      return val::undefined();
+      auto o = status("error");
+      o.set("message", std::string(e.what()));
+      return o;
     }
   }
 };
@@ -46,5 +45,5 @@ public:
 EMSCRIPTEN_BINDINGS(scheme) {
   emscripten::class_<Session>("Session")
     .constructor<>()
-    .function("step", &Session::step);
+    .function("run", &Session::run);
 }

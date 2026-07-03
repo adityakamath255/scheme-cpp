@@ -1,7 +1,3 @@
-# Shared description of the interpreter core. Front-ends include() this and
-# call scheme_core(<their executable target>). Self-locating, so it doesn't
-# care where the including project sits.
-
 set(SCHEME_ROOT ${CMAKE_CURRENT_LIST_DIR}/..)
 file(GLOB_RECURSE SCHEME_CORE_SOURCES CONFIGURE_DEPENDS ${SCHEME_ROOT}/src/*.cpp)
 

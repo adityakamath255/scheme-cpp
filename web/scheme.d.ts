@@ -1,19 +1,15 @@
-// Hand-written types for the Embind boundary exposed by web/main.cpp,
-// compiled into scheme.js (global `createScheme`). Kept in sync by hand.
-
 interface SchemeOptions {
   print?: (text: string) => void;
   printErr?: (text: string) => void;
 }
 
-// Result of Session.step: one read-and-evaluate of the leading form.
-type StepResult =
-  | { kind: "value"; rest: string; value?: string }
+type RunResult =
+  | { kind: "ok" }
   | { kind: "incomplete" }
-  | { kind: "exhausted" };
+  | { kind: "error"; message: string };
 
 interface Session {
-  step(source: string): StepResult;
+  run(source: string, emit: (value: string) => void): RunResult;
   delete(): void;
 }
 
