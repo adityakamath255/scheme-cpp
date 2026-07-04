@@ -5,6 +5,14 @@
 (assert "cond" 'b (cond (#f 'a) (#t 'b) (else 'c)))
 (assert "cond else" 'c (cond (#f 'a) (#f 'b) (else 'c)))
 (assert "cond no body" 5 (cond (5)))
+(assert "cond =>" 2 (cond ((assv 'b '((a 1) (b 2))) => cadr) (else 'no)))
+(assert "cond => lambda" 10 (cond (5 => (lambda (x) (* x 2)))))
+(assert "cond => skipped on false" 'no (cond (#f => car) (else 'no)))
+
+(define (arrow-loop n)
+  (cond ((= n 0) 'done)
+        (n => (lambda (m) (arrow-loop (- m 1))))))
+(assert "cond => tail call" 'done (arrow-loop 100000))
 
 (assert "let" 3 (let ((x 1) (y 2)) (+ x y)))
 (assert "let*" 3 (let* ((x 1) (y (+ x 1))) (+ x y)))

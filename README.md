@@ -46,7 +46,7 @@ cmake --build web/build
 
 `let` also supports the named form (`(let loop ((i 0)) ...)`) for tail-recursive iteration.
 
-`and` and `or` return the deciding value, not a boolean: `(and 1 2 3)` returns `3`, `(or #f 42)` returns `42`. `cond` clauses with no body return the test value: `(cond (5))` returns `5`. Quasiquote works inside vectors: `` `#(1 ,x 3) ``, and `unquote-splicing` (`,@`) splices a list into the surrounding form: `` `(1 ,@'(2 3) 4) `` returns `(1 2 3 4)`.
+`and` and `or` return the deciding value, not a boolean: `(and 1 2 3)` returns `3`, `(or #f 42)` returns `42`. `cond` clauses with no body return the test value: `(cond (5))` returns `5`. `cond` supports `=>` clauses, which pass the test value to a receiver procedure: `(cond ((assv 'b alist) => cadr))`. The receiver call is a tail call. Quasiquote works inside vectors: `` `#(1 ,x 3) ``, and `unquote-splicing` (`,@`) splices a list into the surrounding form: `` `(1 ,@'(2 3) 4) `` returns `(1 2 3 4)`.
 
 ### Macros
 

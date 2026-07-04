@@ -22,6 +22,7 @@ Ctx::Ctx():
   sym_unquote {intern("unquote")},
   sym_unquote_splicing {intern("unquote-splicing")},
   sym_else {intern("else")},
+  sym_arrow {intern("=>")},
   sym_define_macro {intern("define-macro")},
   sym_when {intern("when")},
   sym_unless {intern("unless")},

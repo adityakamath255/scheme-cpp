@@ -110,6 +110,27 @@ static EvalResult eval_body(Obj list, Env *env, Ctx *ctx) {
   return TailCall{list.car(), env};
 }
 
+static EvalResult apply_procedure(
+  Obj proc,
+  const std::vector<Obj> &args,
+  Ctx *ctx
+) {
+  if (proc.is_procedure()) {
+    Procedure *p = proc.as_procedure();
+    Env *new_env = ctx->alloc<LocalEnv>(p->env);
+    bind_args(new_env, p->params, args, p->variadic, ctx);
+    return TailCall{p->body, new_env};
+  }
+
+  else if (proc.is_builtin()) {
+    return proc.as_builtin()->fn(args, ctx);
+  }
+
+  throw std::runtime_error(
+    "not a procedure: " + proc.to_display()
+  );
+}
+
 static Obj eval_quasiquote(Obj obj, Env *env, Ctx *ctx) {
   if (obj.is_vector()) {
     auto vec = obj.as_vector();
@@ -443,11 +464,26 @@ static EvalResult eval_cond(Obj clauses, Env *env, Ctx *ctx) {
       throw std::runtime_error("cond: else clause must have a body");
     }
 
+    bool is_arrow = (
+      !is_else
+      && body.is_cons()
+      && body.car().is_symbol()
+      && body.car().as_symbol() == ctx->sym_arrow
+    );
+
+    if (is_arrow && !(body.cdr().is_cons() && body.cdr().cdr().is_null())) {
+      throw std::runtime_error("cond: expected one receiver after =>");
+    }
+
     Obj test_val = is_else ? true : eval(test_expr, env, ctx);
 
     if (is_else || test_val.is_true()) {
       if (body.is_null()) {
         return test_val;
+      }
+      if (is_arrow) {
+        Obj receiver = eval(body.cdr().car(), env, ctx);
+        return apply_procedure(receiver, {test_val}, ctx);
       }
       return eval_body(body, env, ctx);
     }
@@ -497,22 +533,7 @@ static EvalResult eval_quasiquote_form(Obj rest, Env *env, Ctx *ctx) {
 
 static EvalResult eval_apply(Obj head, Obj rest, Env *env, Ctx *ctx) {
   Obj proc = eval(head, env, ctx);
-  std::vector<Obj> args = eval_args(rest, env, ctx);
-
-  if (proc.is_procedure()) {
-    Procedure *p = proc.as_procedure();
-    Env *new_env = ctx->alloc<LocalEnv>(p->env);
-    bind_args(new_env, p->params, args, p->variadic, ctx);
-    return TailCall{p->body, new_env};
-  }
-
-  else if (proc.is_builtin()) {
-    return proc.as_builtin()->fn(args, ctx);
-  }
-
-  throw std::runtime_error(
-    "not a procedure: " + proc.to_display()
-  );
+  return apply_procedure(proc, eval_args(rest, env, ctx), ctx);
 }
 
 static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
