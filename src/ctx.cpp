@@ -25,7 +25,9 @@ Ctx::Ctx():
   sym_define_macro {intern("define-macro")},
   sym_when {intern("when")},
   sym_unless {intern("unless")},
-  sym_case {intern("case")}
+  sym_case {intern("case")},
+  sym_delay {intern("delay")},
+  sym_cons_stream {intern("cons-stream")}
 {}
 
 Ctx::~Ctx() {

@@ -42,7 +42,7 @@ cmake --build web/build
 
 ### Special forms
 
-`define`, `lambda`, `if`, `cond`, `case`, `when`, `unless`, `let`, `let*`, `letrec`, `set!`, `begin`, `and`, `or`, `quote`, `quasiquote`, `unquote`, `unquote-splicing`, `define-macro`
+`define`, `lambda`, `if`, `cond`, `case`, `when`, `unless`, `let`, `let*`, `letrec`, `set!`, `begin`, `and`, `or`, `quote`, `quasiquote`, `unquote`, `unquote-splicing`, `define-macro`, `delay`, `cons-stream`
 
 `let` also supports the named form (`(let loop ((i 0)) ...)`) for tail-recursive iteration.
 
@@ -78,7 +78,7 @@ Vectors: `vector`, `make-vector`, `vector-ref`, `vector-set!`, `vector-length`, 
 
 Characters: `char?`, `char=?`, `char->integer`, `integer->char`, `string->list`, `list->string`. `write` prints a char as `#\a` (or `#\space`, `#\newline`, `#\tab`, `#\return`); `display` prints the bare character.
 
-Type predicates: `null?`, `boolean?`, `number?`, `integer?`, `char?`, `pair?`, `symbol?`, `string?`, `procedure?`, `list?`, `vector?`, `void?`, `not`
+Type predicates: `null?`, `boolean?`, `number?`, `integer?`, `char?`, `pair?`, `symbol?`, `string?`, `procedure?`, `list?`, `vector?`, `promise?`, `void?`, `not`
 
 Equality: `eq?` (identity), `equal?` (structural, iterates along cdrs to avoid stack overflow on long lists)
 
@@ -86,7 +86,23 @@ Conversion: `number->string`, `string->number`, `symbol->string`, `string->symbo
 
 I/O: `display` (unquoted), `write` (quoted), `newline`, `read`
 
-Other: `error`, `eval`, `apply` (variadic: `(apply + 1 2 '(3 4))` works), `void`, `load`, `file-exists?`, `exit`
+Other: `error`, `eval`, `apply` (variadic: `(apply + 1 2 '(3 4))` works), `force`, `void`, `load`, `file-exists?`, `exit`
+
+### Promises and streams
+
+`delay` wraps an expression into a promise without evaluating it; `force` evaluates it and memoizes the result, so the expression runs at most once. Forcing a non-promise returns it unchanged. Promises print as `#<promise>`, which also means displaying an infinite stream terminates.
+
+`cons-stream` is the SICP stream constructor: `(cons-stream a b)` evaluates `a` and delays `b`, producing `(cons a (delay b))`.
+
+```scheme
+(define (integers-from n) (cons-stream n (integers-from (+ n 1))))
+(define integers (integers-from 1))
+(stream->list (stream-take (stream-filter even? integers) 5))  ; (2 4 6 8 10)
+```
+
+The preamble defines the stream library: `the-empty-stream`, `stream-null?`, `stream-car`, `stream-cdr`, `stream-ref`, `stream-map` (accepts multiple streams), `stream-filter`, `stream-for-each`, `stream-take`, `stream->list`, `stream-enumerate-interval`.
+
+Forcing replaces the stored thunk with its value, dropping the captured environment, so the consumed prefix of a stream can be garbage-collected once nothing else references it.
 
 ### Standard library
 

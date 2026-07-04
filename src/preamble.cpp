@@ -181,6 +181,55 @@ const std::string_view preamble = R"(
             (every pred (cdr lst))
             #f)))
 
+  ;; --- streams ---
+
+  (define the-empty-stream '())
+
+  (define (stream-null? s) (null? s))
+
+  (define (stream-car s) (car s))
+
+  (define (stream-cdr s) (force (cdr s)))
+
+  (define (stream-ref s n)
+    (if (= n 0)
+        (stream-car s)
+        (stream-ref (stream-cdr s) (- n 1))))
+
+  (define (stream-map f . streams)
+    (if (any stream-null? streams)
+        the-empty-stream
+        (cons-stream (apply f (map stream-car streams))
+                     (apply stream-map f (map stream-cdr streams)))))
+
+  (define (stream-filter pred s)
+    (cond ((stream-null? s) the-empty-stream)
+          ((pred (stream-car s))
+           (cons-stream (stream-car s)
+                        (stream-filter pred (stream-cdr s))))
+          (else (stream-filter pred (stream-cdr s)))))
+
+  (define (stream-for-each f s)
+    (if (not (stream-null? s))
+        (begin (f (stream-car s))
+               (stream-for-each f (stream-cdr s)))))
+
+  (define (stream-take s n)
+    (if (or (= n 0) (stream-null? s))
+        the-empty-stream
+        (cons-stream (stream-car s)
+                     (stream-take (stream-cdr s) (- n 1)))))
+
+  (define (stream->list s)
+    (if (stream-null? s)
+        '()
+        (cons (stream-car s) (stream->list (stream-cdr s)))))
+
+  (define (stream-enumerate-interval low high)
+    (if (> low high)
+        the-empty-stream
+        (cons-stream low (stream-enumerate-interval (+ low 1) high))))
+
   ;; --- function combinators ---
 
   (define (compose f g)

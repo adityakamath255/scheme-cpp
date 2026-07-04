@@ -1,5 +1,6 @@
 #include "types.hpp"
 #include "env.hpp"
+#include "eval.hpp"
 
 #include <algorithm>
 #include <format>
@@ -28,6 +29,7 @@ Obj::Obj(Cons *data): data {data} {}
 Obj::Obj(Vector *data): data {data} {}
 Obj::Obj(Procedure *data): data {data} {}
 Obj::Obj(Builtin *data): data {data} {}
+Obj::Obj(Promise *data): data {data} {}
 Obj::Obj(Null data): data {data} {}
 Obj::Obj(Void data): data {data} {}
 
@@ -45,6 +47,7 @@ static_assert(alt_is<Type::Cons, Cons *>);
 static_assert(alt_is<Type::Vector, Vector *>);
 static_assert(alt_is<Type::Procedure, Procedure *>);
 static_assert(alt_is<Type::Builtin, Builtin *>);
+static_assert(alt_is<Type::Promise, Promise *>);
 static_assert(alt_is<Type::Null, Null>);
 static_assert(alt_is<Type::Void, Void>);
 
@@ -86,6 +89,10 @@ bool Obj::is_procedure() const {
 
 bool Obj::is_builtin() const {
   return std::holds_alternative<Builtin *>(data);
+}
+
+bool Obj::is_promise() const {
+  return std::holds_alternative<Promise *>(data);
 }
 
 bool Obj::is_null() const {
@@ -132,6 +139,10 @@ Builtin *Obj::as_builtin() const {
   return std::get<Builtin *>(data);
 }
 
+Promise *Obj::as_promise() const {
+  return std::get<Promise *>(data);
+}
+
 std::optional<HeapEntity *> Obj::heap_entity() const {
   using Ret = std::optional<HeapEntity *>;
   return std::visit(overloaded {
@@ -141,6 +152,7 @@ std::optional<HeapEntity *> Obj::heap_entity() const {
     [](Vector *v)    -> Ret { return v; },
     [](Procedure *p) -> Ret { return p; },
     [](Builtin *b)   -> Ret { return b; },
+    [](Promise *p)   -> Ret { return p; },
     [](auto)         -> Ret { return std::nullopt; },
   }, data);
 }
@@ -169,6 +181,7 @@ bool Obj::equals(Obj other) const {
     case Type::Symbol: return as_symbol() == other.as_symbol();
     case Type::Procedure: return as_procedure() == other.as_procedure();
     case Type::Builtin: return as_builtin() == other.as_builtin();
+    case Type::Promise: return as_promise() == other.as_promise();
 
     case Type::String: return as_string()->data == other.as_string()->data;
 
@@ -279,6 +292,9 @@ static std::string render(Obj obj, bool write) {
         static_cast<const void *>(obj.as_builtin())
       );
 
+    case Type::Promise:
+      return "#<promise>";
+
     case Type::Null:
       return "()";
 
@@ -301,6 +317,7 @@ std::string Obj::stringify_type() const {
     case Type::Vector: return "vector";
     case Type::Procedure:
     case Type::Builtin: return "procedure";
+    case Type::Promise: return "promise";
     case Type::Null: return "null";
     case Type::Void: return "void";
     default: return "???";
@@ -417,4 +434,23 @@ Procedure::Procedure(
 void Procedure::trace(std::vector<HeapEntity *> *worklist) const {
   trace_child(body, worklist);
   worklist->push_back(env);
+}
+
+Promise::Promise(Obj body, Env *env): state {Thunk{body, env}} {}
+
+Obj Promise::force(Ctx *ctx) {
+  if (auto *t = std::get_if<Thunk>(&state)) {
+    state = eval(t->body, t->env, ctx);
+  }
+  return std::get<Obj>(state);
+}
+
+void Promise::trace(std::vector<HeapEntity *> *worklist) const {
+  std::visit(overloaded {
+    [&](const Thunk &t) {
+      trace_child(t.body, worklist);
+      worklist->push_back(t.env);
+    },
+    [&](Obj value) { trace_child(value, worklist); },
+  }, state);
 }

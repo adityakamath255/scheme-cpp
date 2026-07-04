@@ -18,6 +18,7 @@ struct Cons;
 struct Vector;
 struct Builtin;
 struct Procedure;
+class Promise;
 struct Null {};
 struct Void {};
 
@@ -37,6 +38,7 @@ using Value = std::variant<
   Vector *,
   Procedure *,
   Builtin *,
+  Promise *,
   Null,
   Void
 >;
@@ -51,6 +53,7 @@ enum class Type : size_t {
   Vector,
   Procedure,
   Builtin,
+  Promise,
   Null,
   Void
 };
@@ -116,6 +119,7 @@ public:
   Obj(Vector *);
   Obj(Procedure *);
   Obj(Builtin *);
+  Obj(Promise *);
   Obj(Null);
   Obj(Void);
 
@@ -130,6 +134,7 @@ public:
   bool is_vector() const;
   bool is_procedure() const;
   bool is_builtin() const;
+  bool is_promise() const;
   bool is_null() const;
   bool is_void() const;
 
@@ -142,6 +147,7 @@ public:
   Vector *as_vector() const;
   Procedure *as_procedure() const;
   Builtin *as_builtin() const;
+  Promise *as_promise() const;
 
   std::optional<HeapEntity *> heap_entity() const;
 
@@ -247,6 +253,22 @@ struct Procedure : HeapEntity {
     bool variadic,
     bool macro
   );
+
+  void trace(std::vector<HeapEntity *> *) const override;
+};
+
+class Promise : public HeapEntity {
+  struct Thunk {
+    Obj body;
+    Env *env;
+  };
+
+  std::variant<Thunk, Obj> state;
+
+public:
+  Promise(Obj body, Env *env);
+
+  Obj force(Ctx *ctx);
 
   void trace(std::vector<HeapEntity *> *) const override;
 };

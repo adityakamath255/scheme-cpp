@@ -371,6 +371,11 @@ static Obj builtin_is_void(const std::vector<Obj> &args, Ctx *) {
   return args[0].is_void();
 }
 
+static Obj builtin_is_promise(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "promise?", 1, 1);
+  return args[0].is_promise();
+}
+
 static Obj builtin_not(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "not", 1, 1);
   return args[0].is_false();
@@ -400,6 +405,7 @@ static Obj builtin_eq(const std::vector<Obj> &args, Ctx *) {
       case Type::Vector: return a.as_vector() == b.as_vector();
       case Type::Procedure: return a.as_procedure() == b.as_procedure();
       case Type::Builtin: return a.as_builtin() == b.as_builtin();
+      case Type::Promise: return a.as_promise() == b.as_promise();
       case Type::Null:
       case Type::Void: return true;
       default: return false;
@@ -696,6 +702,16 @@ static Obj builtin_list_to_vector(const std::vector<Obj> &args, Ctx *ctx) {
   return ctx->alloc<Vector>(std::ranges::to<std::vector>(list));
 }
 
+// --- promises ---
+
+static Obj builtin_force(const std::vector<Obj> &args, Ctx *ctx) {
+  check_arity(args, "force", 1, 1);
+  if (!args[0].is_promise()) {
+    return args[0];
+  }
+  return args[0].as_promise()->force(ctx);
+}
+
 // --- misc ---
 
 static Obj builtin_error(const std::vector<Obj> &args, Ctx *) {
@@ -839,6 +855,7 @@ void install_builtins(Ctx *ctx) {
   install("procedure?", builtin_is_procedure);
   install("list?", builtin_is_list);
   install("void?", builtin_is_void);
+  install("promise?", builtin_is_promise);
   install("not", builtin_not);
   install("void", builtin_void);
 
@@ -886,6 +903,8 @@ void install_builtins(Ctx *ctx) {
   install("write", builtin_write);
   install("newline", builtin_newline);
   install("read", builtin_read);
+
+  install("force", builtin_force);
 
   install("error", builtin_error);
   install("eval", builtin_eval);

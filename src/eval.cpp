@@ -474,6 +474,20 @@ static EvalResult eval_and_or(Obj rest, Env *env, Ctx *ctx, bool conjunction) {
   return TailCall{rest.car(), env};
 }
 
+static EvalResult eval_delay(Obj rest, Env *env, Ctx *ctx) {
+  check_arity(rest, "delay", 1, 1);
+  return Obj(ctx->alloc<Promise>(rest.car(), env));
+}
+
+static EvalResult eval_cons_stream(Obj rest, Env *env, Ctx *ctx) {
+  check_arity(rest, "cons-stream", 2, 2);
+  Obj head = eval(rest.car(), env, ctx);
+  return Obj(ctx->alloc<Cons>(
+    head,
+    ctx->alloc<Promise>(rest.cdr().car(), env)
+  ));
+}
+
 // --- dispatch ---
 
 static EvalResult eval_quasiquote_form(Obj rest, Env *env, Ctx *ctx) {
@@ -575,6 +589,12 @@ static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
       }
       else if (sym == ctx->sym_quasiquote) {
         return eval_quasiquote_form(rest, env, ctx);
+      }
+      else if (sym == ctx->sym_delay) {
+        return eval_delay(rest, env, ctx);
+      }
+      else if (sym == ctx->sym_cons_stream) {
+        return eval_cons_stream(rest, env, ctx);
       }
       else if (sym == ctx->sym_define_macro) {
         return eval_define_macro(rest, env, ctx);
