@@ -18,4 +18,7 @@ target_link_options(scheme PRIVATE
   -sENVIRONMENT=web
   -sALLOW_MEMORY_GROWTH=1
   -sSTACK_SIZE=8MB
+  # emscripten 6 defaults to resizable wasm memory, but Firefox's TextDecoder
+  # rejects views over resizable ArrayBuffers -> strings >16 bytes crash
+  -sGROWABLE_ARRAYBUFFERS=0
   -fexceptions)
