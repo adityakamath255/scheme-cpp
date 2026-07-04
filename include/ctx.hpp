@@ -40,10 +40,11 @@ public:
          sym_when, sym_unless, sym_case, sym_delay, sym_cons_stream;
 };
 
-template<std::ranges::input_range R>
+// fold_left over the reversed range == fold_right, which libc++ (wasm) lacks
+template<std::ranges::bidirectional_range R>
 Obj list_from(R &&elems, Ctx *ctx, Obj tail = Null{}) {
-  return std::ranges::fold_right(
-    std::forward<R>(elems), tail,
-    [ctx](Obj elem, Obj acc) -> Obj { return ctx->alloc<Cons>(elem, acc); }
+  return std::ranges::fold_left(
+    std::forward<R>(elems) | std::views::reverse, tail,
+    [ctx](Obj acc, Obj elem) -> Obj { return ctx->alloc<Cons>(elem, acc); }
   );
 }

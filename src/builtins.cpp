@@ -100,10 +100,11 @@ static Obj numeric_compare(
   auto nums = args
     | std::views::transform([&](Obj a) { return as_num(a, name); })
     | std::ranges::to<std::vector>();
-  return std::ranges::all_of(
-    nums | std::views::pairwise,
-    [&](auto pair) { return ok(std::get<0>(pair).compare(std::get<1>(pair))); }
-  );
+  // adjacent_find, not views::pairwise: libc++ (wasm) has no zip family
+  return std::ranges::adjacent_find(
+    nums,
+    [&](Number a, Number b) { return !ok(a.compare(b)); }
+  ) == nums.end();
 }
 
 // --- arithmetic ---
@@ -242,10 +243,11 @@ static Obj minmax(
     | std::views::transform([&](Obj a) { return as_num(a, name); })
     | std::ranges::to<std::vector>();
   bool inexact = std::ranges::any_of(nums, [](Number n) { return !n.is_exact(); });
-  Number best = std::ranges::fold_left_first(
-    nums,
+  // seeded fold_left: libc++ (wasm) lacks fold_left_first
+  Number best = std::ranges::fold_left(
+    nums | std::views::drop(1), nums[0],
     [want](Number a, Number b) { return b.compare(a) == want ? b : a; }
-  ).value();
+  );
   return inexact ? best.to_inexact() : best;
 }
 
