@@ -1,6 +1,5 @@
 #include "parse.hpp"
 #include "ctx.hpp"
-#include <stdexcept>
 #include <cassert>
 #include <limits>
 
@@ -18,7 +17,7 @@ static std::string process_escapes(std::string_view raw) {
         case '\\': res += '\\'; break;
         case '"': res += '"'; break;
         default:
-          throw std::runtime_error("invalid escape sequence");
+          throw SchemeError("invalid escape sequence");
       }
     }
 
@@ -74,7 +73,7 @@ class Parser {
       if (match(Token::DOT)) {
         tail->cdr = parse_expr();
         if (!match(Token::RPAREN)) {
-          throw std::runtime_error("expected ')' after dotted pair");
+          throw SchemeError("expected ')' after dotted pair");
         }
         return head;
       }
@@ -163,7 +162,7 @@ class Parser {
       }
 
       default:
-        throw std::runtime_error("unexpected token");
+        throw SchemeError("unexpected token");
     }
   }
 

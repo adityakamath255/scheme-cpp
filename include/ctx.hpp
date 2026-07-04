@@ -37,7 +37,8 @@ public:
          sym_begin, sym_let, sym_letstar, sym_letrec, sym_cond,
          sym_and, sym_or, sym_quasiquote, sym_unquote,
          sym_unquote_splicing, sym_else, sym_arrow, sym_define_macro,
-         sym_when, sym_unless, sym_case, sym_delay, sym_cons_stream;
+         sym_when, sym_unless, sym_case, sym_delay, sym_cons_stream,
+         sym_guard;
 };
 
 // fold_left over the reversed range == fold_right, which libc++ (wasm) lacks

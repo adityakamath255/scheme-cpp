@@ -1,6 +1,6 @@
 #include "lex.hpp"
+#include "types.hpp"
 #include <cassert>
-#include <stdexcept>
 
 static bool is_space(char c) {
   switch (c) {
@@ -149,7 +149,7 @@ class Lexer {
       return char_token();
     }
     else {
-      throw std::runtime_error("unidentified constant after '#'");
+      throw SchemeError("unidentified constant after '#'");
     }
   }
 
@@ -213,7 +213,7 @@ class Lexer {
 
   Token char_token() {
     if (curr >= input.size()) {
-      throw std::runtime_error("expected character after #\\");
+      throw SchemeError("expected character after #\\");
     }
     curr += 1;
     while (!at_boundary()) {
@@ -234,7 +234,7 @@ class Lexer {
       case ')': case ']':
         curr += 1;
         if (bracket_stack.empty() || bracket_stack.back() != c) {
-          throw std::runtime_error("mismatched brackets");
+          throw SchemeError("mismatched brackets");
         }
         bracket_stack.pop_back();
         return make_token(Token::RPAREN);

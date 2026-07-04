@@ -30,6 +30,7 @@ Obj::Obj(Vector *data): data {data} {}
 Obj::Obj(Procedure *data): data {data} {}
 Obj::Obj(Builtin *data): data {data} {}
 Obj::Obj(Promise *data): data {data} {}
+Obj::Obj(Error *data): data {data} {}
 Obj::Obj(Null data): data {data} {}
 Obj::Obj(Void data): data {data} {}
 
@@ -48,6 +49,7 @@ static_assert(alt_is<Type::Vector, Vector *>);
 static_assert(alt_is<Type::Procedure, Procedure *>);
 static_assert(alt_is<Type::Builtin, Builtin *>);
 static_assert(alt_is<Type::Promise, Promise *>);
+static_assert(alt_is<Type::Error, Error *>);
 static_assert(alt_is<Type::Null, Null>);
 static_assert(alt_is<Type::Void, Void>);
 
@@ -95,6 +97,10 @@ bool Obj::is_promise() const {
   return std::holds_alternative<Promise *>(data);
 }
 
+bool Obj::is_error() const {
+  return std::holds_alternative<Error *>(data);
+}
+
 bool Obj::is_null() const {
   return std::holds_alternative<Null>(data);
 }
@@ -103,44 +109,58 @@ bool Obj::is_void() const {
   return std::holds_alternative<Void>(data);
 }
 
+template<typename T>
+static T expect(const Value &data, std::string_view wanted) {
+  if (auto p = std::get_if<T>(&data)) {
+    return *p;
+  }
+  throw SchemeError(std::format(
+    "expected {}, got {}", wanted, Obj(data).stringify_type()
+  ));
+}
+
 bool Obj::as_bool() const {
-  return std::get<bool>(data);
+  return expect<bool>(data, "boolean");
 }
 
 char Obj::as_char() const {
-  return get<char>(data);
+  return expect<char>(data, "char");
 }
 
 Number Obj::as_number() const {
-  return std::get<Number>(data);
+  return expect<Number>(data, "number");
 }
 
 Symbol Obj::as_symbol() const {
-  return std::get<Symbol>(data);
+  return expect<Symbol>(data, "symbol");
 }
 
 String *Obj::as_string() const {
-  return std::get<String *>(data);
+  return expect<String *>(data, "string");
 }
 
 Cons *Obj::as_cons() const {
-  return std::get<Cons *>(data);
+  return expect<Cons *>(data, "pair");
 }
 
 Vector *Obj::as_vector() const {
-  return std::get<Vector *>(data);
+  return expect<Vector *>(data, "vector");
 }
 
 Procedure *Obj::as_procedure() const {
-  return std::get<Procedure *>(data);
+  return expect<Procedure *>(data, "procedure");
 }
 
 Builtin *Obj::as_builtin() const {
-  return std::get<Builtin *>(data);
+  return expect<Builtin *>(data, "procedure");
 }
 
 Promise *Obj::as_promise() const {
-  return std::get<Promise *>(data);
+  return expect<Promise *>(data, "promise");
+}
+
+Error *Obj::as_error() const {
+  return expect<Error *>(data, "error");
 }
 
 std::optional<HeapEntity *> Obj::heap_entity() const {
@@ -153,6 +173,7 @@ std::optional<HeapEntity *> Obj::heap_entity() const {
     [](Procedure *p) -> Ret { return p; },
     [](Builtin *b)   -> Ret { return b; },
     [](Promise *p)   -> Ret { return p; },
+    [](Error *e)     -> Ret { return e; },
     [](auto)         -> Ret { return std::nullopt; },
   }, data);
 }
@@ -182,6 +203,7 @@ bool Obj::equals(Obj other) const {
     case Type::Procedure: return as_procedure() == other.as_procedure();
     case Type::Builtin: return as_builtin() == other.as_builtin();
     case Type::Promise: return as_promise() == other.as_promise();
+    case Type::Error: return as_error() == other.as_error();
 
     case Type::String: return as_string()->data == other.as_string()->data;
 
@@ -295,6 +317,9 @@ static std::string render(Obj obj, bool write) {
     case Type::Promise:
       return "#<promise>";
 
+    case Type::Error:
+      return "#<error: " + obj.as_error()->describe() + ">";
+
     case Type::Null:
       return "()";
 
@@ -318,6 +343,7 @@ std::string Obj::stringify_type() const {
     case Type::Procedure:
     case Type::Builtin: return "procedure";
     case Type::Promise: return "promise";
+    case Type::Error: return "error";
     case Type::Null: return "null";
     case Type::Void: return "void";
     default: return "???";
@@ -454,3 +480,28 @@ void Promise::trace(std::vector<HeapEntity *> *worklist) const {
     [&](Obj value) { trace_child(value, worklist); },
   }, state);
 }
+
+Error::Error(std::string message, Obj irritants):
+  message {std::move(message)},
+  irritants {irritants}
+{}
+
+std::string Error::describe() const {
+  return irritants.is_null()
+    ? message
+    : message + " " + join_elems(ListView{irritants}, true);
+}
+
+void Error::trace(std::vector<HeapEntity *> *worklist) const {
+  trace_child(irritants, worklist);
+}
+
+SchemeError::SchemeError(const std::string &message):
+  std::runtime_error(message),
+  payload {}
+{}
+
+SchemeError::SchemeError(Obj payload, const std::string &rendered):
+  std::runtime_error(rendered),
+  payload {payload}
+{}

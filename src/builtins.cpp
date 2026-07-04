@@ -12,7 +12,6 @@
 #include <fstream>
 #include <iostream>
 #include <ranges>
-#include <stdexcept>
 #include <sstream>
 
 // --- helpers ---
@@ -24,7 +23,7 @@ static void check_arity(
   size_t max
 ) {
   if (args.size() < min || args.size() > max) {
-    throw std::runtime_error(
+    throw SchemeError(
       std::format(
         "{}: expected {} arguments, got {}",
         name,
@@ -46,7 +45,7 @@ static void check_type(
   std::string_view context
 ) {
   if (!(obj.*pred)()) {
-    throw std::runtime_error(
+    throw SchemeError(
       std::format(
         "{}: expected {}, got {}",
         context, type_name, obj.stringify_type()
@@ -63,7 +62,7 @@ static Number as_num(Obj obj, std::string_view context) {
 static size_t as_index(Obj obj, std::string_view context) {
   Number n = as_num(obj, context);
   if (!n.is_integer() || n.to_double() < 0) {
-    throw std::runtime_error(
+    throw SchemeError(
       std::format("{}: expected non-negative integer", context)
     );
   }
@@ -408,6 +407,7 @@ static Obj builtin_eq(const std::vector<Obj> &args, Ctx *) {
       case Type::Procedure: return a.as_procedure() == b.as_procedure();
       case Type::Builtin: return a.as_builtin() == b.as_builtin();
       case Type::Promise: return a.as_promise() == b.as_promise();
+      case Type::Error: return a.as_error() == b.as_error();
       case Type::Null:
       case Type::Void: return true;
       default: return false;
@@ -444,13 +444,13 @@ static Obj builtin_list(const std::vector<Obj> &args, Ctx *ctx) {
 static Obj builtin_length(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "length", 1, 1);
   if (!args[0].is_null() && !args[0].is_cons()) {
-    throw std::runtime_error(
+    throw SchemeError(
       "length: expected list, got " + args[0].stringify_type()
     );
   }
   auto profile = args[0].get_list_profile();
   if (!profile.is_proper) {
-    throw std::runtime_error("length: expected proper list");
+    throw SchemeError("length: expected proper list");
   }
   return Number::exact(static_cast<int64_t>(profile.size), ctx);
 }
@@ -462,12 +462,12 @@ static Obj builtin_list_ref(const std::vector<Obj> &args, Ctx *) {
   Obj curr = args[0];
   for (size_t i = 0; i < index; i += 1) {
     if (!curr.is_cons()) {
-      throw std::runtime_error("list-ref: index out of range");
+      throw SchemeError("list-ref: index out of range");
     }
     curr = curr.cdr();
   }
   if (!curr.is_cons()) {
-    throw std::runtime_error("list-ref: index out of range");
+    throw SchemeError("list-ref: index out of range");
   }
   return curr.car();
 }
@@ -498,7 +498,7 @@ static Obj builtin_string_ref(const std::vector<Obj> &args, Ctx *) {
   const std::string &s = as_string(args[0], "string-ref")->data;
   size_t index = as_index(args[1], "string-ref");
   if (index >= s.size()) {
-    throw std::runtime_error("string-ref: index out of range");
+    throw SchemeError("string-ref: index out of range");
   }
   return s[index];
 }
@@ -512,7 +512,7 @@ static Obj builtin_substring(const std::vector<Obj> &args, Ctx *ctx) {
     end = as_index(args[2], "substring");
   }
   if (start > end || end > s.size()) {
-    throw std::runtime_error("substring: index out of range");
+    throw SchemeError("substring: index out of range");
   }
   return ctx->alloc<String>(s.substr(start, end - start));
 }
@@ -568,7 +568,7 @@ static Obj builtin_list_to_string(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "list->string", 1, 1);
   ListView list{args[0]};
   if (!list.tail().is_null()) {
-    throw std::runtime_error("list->string: expected proper list");
+    throw SchemeError("list->string: expected proper list");
   }
   return ctx->alloc<String>(std::ranges::to<std::string>(
     list | std::views::transform([](Obj c) { return as_char(c, "list->string"); })
@@ -588,7 +588,7 @@ static Obj builtin_string_to_number(const std::vector<Obj> &args, Ctx *ctx) {
   try {
     return Number::parse(s, ctx);
   }
-  catch (const std::runtime_error &) {
+  catch (const SchemeError &) {
     return false;
   }
 }
@@ -630,7 +630,7 @@ static Obj builtin_read(const std::vector<Obj> &args, Ctx *ctx) {
   while (true) {
     std::string line;
     if (!std::getline(std::cin, line)) {
-      throw std::runtime_error("read: unexpected end of input");
+      throw SchemeError("read: unexpected end of input");
     }
     if (!input.empty()) {
       input += '\n';
@@ -667,7 +667,7 @@ static Obj builtin_vector_ref(const std::vector<Obj> &args, Ctx *) {
   Vector *v = as_vector(args[0], "vector-ref");
   size_t i = as_index(args[1], "vector-ref");
   if (i >= v->data.size()) {
-    throw std::runtime_error("vector-ref: index out of range");
+    throw SchemeError("vector-ref: index out of range");
   }
   return v->data[i];
 }
@@ -677,7 +677,7 @@ static Obj builtin_vector_set(const std::vector<Obj> &args, Ctx *) {
   Vector *v = as_vector(args[0], "vector-set!");
   size_t i = as_index(args[1], "vector-set!");
   if (i >= v->data.size()) {
-    throw std::runtime_error("vector-set!: index out of range");
+    throw SchemeError("vector-set!: index out of range");
   }
   v->data[i] = args[2];
   return Void{};
@@ -699,7 +699,7 @@ static Obj builtin_list_to_vector(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "list->vector", 1, 1);
   ListView list{args[0]};
   if (!list.tail().is_null()) {
-    throw std::runtime_error("list->vector: expected proper list");
+    throw SchemeError("list->vector: expected proper list");
   }
   return ctx->alloc<Vector>(std::ranges::to<std::vector>(list));
 }
@@ -714,17 +714,46 @@ static Obj builtin_force(const std::vector<Obj> &args, Ctx *ctx) {
   return args[0].as_promise()->force(ctx);
 }
 
-// --- misc ---
+// --- errors ---
 
-static Obj builtin_error(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_error(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "error", 1, SIZE_MAX);
-  std::ostringstream msg;
-  msg << args[0].to_display();
-  for (size_t i = 1; i < args.size(); i += 1) {
-    msg << " " << args[i].to_write();
-  }
-  throw std::runtime_error(msg.str());
+  Error *err = ctx->alloc<Error>(
+    args[0].to_display(),
+    list_from(args | std::views::drop(1), ctx)
+  );
+  throw SchemeError(err, err->describe());
 }
+
+static Obj builtin_raise(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "raise", 1, 1);
+  Obj payload = args[0];
+  throw SchemeError(
+    payload,
+    payload.is_error()
+      ? payload.as_error()->describe()
+      : "uncaught exception: " + payload.to_write()
+  );
+}
+
+static Obj builtin_is_error_object(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "error-object?", 1, 1);
+  return args[0].is_error();
+}
+
+static Obj builtin_error_object_message(const std::vector<Obj> &args, Ctx *ctx) {
+  check_arity(args, "error-object-message", 1, 1);
+  check_type(args[0], &Obj::is_error, "error object", "error-object-message");
+  return ctx->alloc<String>(args[0].as_error()->message);
+}
+
+static Obj builtin_error_object_irritants(const std::vector<Obj> &args, Ctx *) {
+  check_arity(args, "error-object-irritants", 1, 1);
+  check_type(args[0], &Obj::is_error, "error object", "error-object-irritants");
+  return args[0].as_error()->irritants;
+}
+
+// --- misc ---
 
 static Obj builtin_eval(const std::vector<Obj> &args, Ctx *ctx) {
   check_arity(args, "eval", 1, 1);
@@ -737,7 +766,7 @@ static Obj builtin_load(const std::vector<Obj> &args, Ctx *ctx) {
 
   std::ifstream file(path);
   if (!file) {
-    throw std::runtime_error("load: could not open " + path);
+    throw SchemeError("load: could not open " + path);
   }
   std::ostringstream buf;
   buf << file.rdbuf();
@@ -775,7 +804,7 @@ static Obj builtin_apply(const std::vector<Obj> &args, Ctx *ctx) {
 
   Obj proc = args[0];
   if (!proc.is_procedure() && !proc.is_builtin()) {
-    throw std::runtime_error(
+    throw SchemeError(
       "apply: expected procedure, got " + proc.stringify_type()
     );
   }
@@ -785,7 +814,7 @@ static Obj builtin_apply(const std::vector<Obj> &args, Ctx *ctx) {
   ListView rest{args.back()};
 
   if (!rest.tail().is_null()) {
-    throw std::runtime_error("apply: last argument must be a proper list");
+    throw SchemeError("apply: last argument must be a proper list");
   }
 
   call_args.append_range(rest);
@@ -909,6 +938,10 @@ void install_builtins(Ctx *ctx) {
   install("force", builtin_force);
 
   install("error", builtin_error);
+  install("raise", builtin_raise);
+  install("error-object?", builtin_is_error_object);
+  install("error-object-message", builtin_error_object_message);
+  install("error-object-irritants", builtin_error_object_irritants);
   install("eval", builtin_eval);
   install("apply", builtin_apply);
   install("load", builtin_load);

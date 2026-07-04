@@ -2,6 +2,7 @@
 #include <compare>
 #include <iterator>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -19,6 +20,7 @@ struct Vector;
 struct Builtin;
 struct Procedure;
 class Promise;
+struct Error;
 struct Null {};
 struct Void {};
 
@@ -39,6 +41,7 @@ using Value = std::variant<
   Procedure *,
   Builtin *,
   Promise *,
+  Error *,
   Null,
   Void
 >;
@@ -54,6 +57,7 @@ enum class Type : size_t {
   Procedure,
   Builtin,
   Promise,
+  Error,
   Null,
   Void
 };
@@ -120,6 +124,7 @@ public:
   Obj(Procedure *);
   Obj(Builtin *);
   Obj(Promise *);
+  Obj(Error *);
   Obj(Null);
   Obj(Void);
 
@@ -135,6 +140,7 @@ public:
   bool is_procedure() const;
   bool is_builtin() const;
   bool is_promise() const;
+  bool is_error() const;
   bool is_null() const;
   bool is_void() const;
 
@@ -148,6 +154,7 @@ public:
   Procedure *as_procedure() const;
   Builtin *as_builtin() const;
   Promise *as_promise() const;
+  Error *as_error() const;
 
   std::optional<HeapEntity *> heap_entity() const;
 
@@ -271,6 +278,26 @@ public:
   Obj force(Ctx *ctx);
 
   void trace(std::vector<HeapEntity *> *) const override;
+};
+
+struct Error : HeapEntity {
+  std::string message;
+  Obj irritants;
+
+  Error(std::string message, Obj irritants);
+
+  std::string describe() const;
+
+  void trace(std::vector<HeapEntity *> *) const override;
+};
+
+// guard catches exactly this type; any other exception unwinding
+// through eval is an interpreter bug, not a Scheme error.
+struct SchemeError : std::runtime_error {
+  std::optional<Obj> payload;
+
+  explicit SchemeError(const std::string &message);
+  SchemeError(Obj payload, const std::string &rendered);
 };
 
 template<>

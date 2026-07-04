@@ -28,7 +28,8 @@ Ctx::Ctx():
   sym_unless {intern("unless")},
   sym_case {intern("case")},
   sym_delay {intern("delay")},
-  sym_cons_stream {intern("cons-stream")}
+  sym_cons_stream {intern("cons-stream")},
+  sym_guard {intern("guard")}
 {}
 
 Ctx::~Ctx() {

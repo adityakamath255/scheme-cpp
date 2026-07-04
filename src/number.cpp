@@ -9,13 +9,12 @@
 #include <format>
 #include <functional>
 #include <limits>
-#include <stdexcept>
 
 namespace {
 
 void check(mp_err e) {
   if (e != MP_OKAY) {
-    throw std::runtime_error("bignum operation failed");
+    throw SchemeError("bignum operation failed");
   }
 }
 
@@ -219,7 +218,7 @@ Number Number::mul(Number o, Ctx *ctx) const {
 Number Number::div(Number o, Ctx *ctx) const {
   if (is_exact() && o.is_exact()) {
     if (o.is_zero()) {
-      throw std::runtime_error("/: division by zero");
+      throw SchemeError("/: division by zero");
     }
     auto [q, r] = divmod(rep, o.rep, ctx);
     if (rep_is_zero(r)) {
@@ -258,7 +257,7 @@ Number Number::sqrt(Ctx *ctx) const {
 
 Number Number::quotient(Number o, Ctx *ctx) const {
   if (o.is_zero()) {
-    throw std::runtime_error("quotient: division by zero");
+    throw SchemeError("quotient: division by zero");
   }
 
   if (is_exact() && o.is_exact()) {
@@ -270,7 +269,7 @@ Number Number::quotient(Number o, Ctx *ctx) const {
 }
 Number Number::remainder(Number o, Ctx *ctx) const {
   if (o.is_zero()) {
-    throw std::runtime_error("remainder: division by zero");
+    throw SchemeError("remainder: division by zero");
   }
 
   if (is_exact() && o.is_exact()) {
@@ -283,7 +282,7 @@ Number Number::remainder(Number o, Ctx *ctx) const {
 
 Number Number::modulo(Number o, Ctx *ctx) const {
   if (o.is_zero()) {
-    throw std::runtime_error("modulo: division by zero");
+    throw SchemeError("modulo: division by zero");
   }
 
   Number r = remainder(o, ctx);
@@ -323,11 +322,11 @@ Number Number::to_exact(Ctx *ctx) const {
   else {
     double d = std::get<double>(rep);
     if (!std::isfinite(d) || std::trunc(d) != d) {
-      throw std::runtime_error("inexact->exact: not an integer");
+      throw SchemeError("inexact->exact: not an integer");
     }
     if (d < static_cast<double>(fixnum_min)
         || d > static_cast<double>(fixnum_max)) {
-      throw std::runtime_error("inexact->exact: magnitude too large");
+      throw SchemeError("inexact->exact: magnitude too large");
     }
     return Number(of_i64(static_cast<int64_t>(d), ctx));
   }
@@ -386,7 +385,7 @@ Number Number::parse(std::string_view lexeme, Ctx *ctx) {
     double d;
     auto [p, ec] = std::from_chars(begin, end, d);
     if (ec != std::errc{} || p != end) {
-      throw std::runtime_error("invalid number");
+      throw SchemeError("invalid number");
     }
     return inexact(d);
   }
@@ -405,7 +404,7 @@ Number Number::parse(std::string_view lexeme, Ctx *ctx) {
       return Number(from_bigint(b, ctx));
     }
     else {
-      throw std::runtime_error("invalid number");
+      throw SchemeError("invalid number");
     }
   }
 }

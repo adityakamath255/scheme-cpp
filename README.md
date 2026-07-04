@@ -42,7 +42,7 @@ cmake --build web/build
 
 ### Special forms
 
-`define`, `lambda`, `if`, `cond`, `case`, `when`, `unless`, `let`, `let*`, `letrec`, `set!`, `begin`, `and`, `or`, `quote`, `quasiquote`, `unquote`, `unquote-splicing`, `define-macro`, `delay`, `cons-stream`
+`define`, `lambda`, `if`, `cond`, `case`, `when`, `unless`, `let`, `let*`, `letrec`, `set!`, `begin`, `and`, `or`, `quote`, `quasiquote`, `unquote`, `unquote-splicing`, `define-macro`, `delay`, `cons-stream`, `guard`
 
 `let` also supports the named form (`(let loop ((i 0)) ...)`) for tail-recursive iteration.
 
@@ -86,7 +86,19 @@ Conversion: `number->string`, `string->number`, `symbol->string`, `string->symbo
 
 I/O: `display` (unquoted), `write` (quoted), `newline`, `read`
 
-Other: `error`, `eval`, `apply` (variadic: `(apply + 1 2 '(3 4))` works), `force`, `void`, `load`, `file-exists?`, `exit`
+Other: `error`, `raise`, `error-object?`, `error-object-message`, `error-object-irritants`, `eval`, `apply` (variadic: `(apply + 1 2 '(3 4))` works), `force`, `void`, `load`, `file-exists?`, `exit`
+
+### Errors
+
+`error` raises an error object carrying a message and a list of irritants; `raise` raises any value as-is. `guard` catches, R7RS-style: the body runs, and if something is raised, the variable is bound to it and the clauses are tried like `cond` clauses (including `else` and `=>`); if none matches, the value is re-raised to the next guard out.
+
+```scheme
+(guard (e ((symbol? e) (list 'symbol e))
+          ((error-object? e) (error-object-message e)))
+  (error "out of cheese" 42))          ; "out of cheese"
+```
+
+Native errors (wrong types, arity mismatches, division by zero) are catchable too and arrive as error objects. Error objects print as `#<error: message irritants...>`. There is no `with-exception-handler` or `raise-continuable`.
 
 ### Promises and streams
 

@@ -1,7 +1,6 @@
 #include "eval.hpp"
 #include "ctx.hpp"
 
-#include <stdexcept>
 #include <format>
 #include <ranges>
 
@@ -25,13 +24,13 @@ static void check_arity(
   auto profile = rest.get_list_profile();
 
   if (!profile.is_proper) {
-    throw std::runtime_error(
+    throw SchemeError(
       std::format("{}: improper argument list", name)
     );
   }
 
   if (profile.size < min || profile.size > max) {
-    throw std::runtime_error(
+    throw SchemeError(
       std::format(
         "{}: expected {} arguments, got {}",
         name,
@@ -72,7 +71,7 @@ static Params extract_params(Obj formals) {
 
     for (Obj p : params) {
       if (!p.is_symbol()) {
-        throw std::runtime_error("parameter must be a symbol");
+        throw SchemeError("parameter must be a symbol");
       }
       names.push_back(p.as_symbol());
     }
@@ -87,7 +86,7 @@ static Params extract_params(Obj formals) {
       return {std::move(names), true};
     }
     else {
-      throw std::runtime_error("invalid parameter list");
+      throw SchemeError("invalid parameter list");
     }
   }
 }
@@ -126,7 +125,7 @@ static EvalResult apply_procedure(
     return proc.as_builtin()->fn(args, ctx);
   }
 
-  throw std::runtime_error(
+  throw SchemeError(
     "not a procedure: " + proc.to_display()
   );
 }
@@ -232,7 +231,7 @@ static EvalResult eval_define(Obj rest, Env *env, Ctx *ctx) {
   }
 
   else {
-    throw std::runtime_error(
+    throw SchemeError(
       "define: expected symbol or list, got "
       + target.stringify_type()
     );
@@ -261,7 +260,7 @@ static EvalResult eval_define_macro(Obj rest, Env *env, Ctx *ctx) {
     Obj val = eval(rest.cdr().car(), env, ctx);
 
     if (!val.is_procedure()) {
-      throw std::runtime_error("define-macro: expected procedure");
+      throw SchemeError("define-macro: expected procedure");
     }
 
     Procedure *p = val.as_procedure();
@@ -273,7 +272,7 @@ static EvalResult eval_define_macro(Obj rest, Env *env, Ctx *ctx) {
   }
 
   else {
-    throw std::runtime_error(
+    throw SchemeError(
       "define-macro: expected symbol or list"
     );
   }
@@ -284,7 +283,7 @@ static EvalResult eval_define_macro(Obj rest, Env *env, Ctx *ctx) {
 static EvalResult eval_set(Obj rest, Env *env, Ctx *ctx) {
   check_arity(rest, "set!", 2, 2);
   if (!rest.car().is_symbol()) {
-    throw std::runtime_error(
+    throw SchemeError(
       "set!: expected symbol, got "
       + rest.car().stringify_type()
     );
@@ -292,7 +291,7 @@ static EvalResult eval_set(Obj rest, Env *env, Ctx *ctx) {
   Symbol sym = rest.car().as_symbol();
   Obj val = eval(rest.cdr().car(), env, ctx);
   if (!env->set(sym, val)) {
-    throw std::runtime_error(
+    throw SchemeError(
       "set!: undefined variable "
       + sym.get_name()
     );
@@ -334,7 +333,7 @@ static EvalResult eval_let(Obj rest, Env *env, Ctx *ctx, LetKind kind) {
   if (kind == LetKind::Rec) {
     for (Obj binding : ListView{bindings}) {
       if (!binding.car().is_symbol()) {
-        throw std::runtime_error("letrec: binding name must be a symbol");
+        throw SchemeError("letrec: binding name must be a symbol");
       }
       new_env->define(binding.car().as_symbol(), Void{});
     }
@@ -344,7 +343,7 @@ static EvalResult eval_let(Obj rest, Env *env, Ctx *ctx, LetKind kind) {
 
   for (Obj binding : ListView{bindings}) {
     if (!binding.car().is_symbol()) {
-      throw std::runtime_error(
+      throw SchemeError(
         std::string(name) + ": binding name must be a symbol"
       );
     }
@@ -371,7 +370,7 @@ static EvalResult eval_named_let(Obj rest, Env *env, Ctx *ctx) {
   std::vector<Obj> args;
   for (Obj binding : ListView{bindings}) {
     if (!binding.car().is_symbol()) {
-      throw std::runtime_error("let: binding name must be a symbol");
+      throw SchemeError("let: binding name must be a symbol");
     }
     params.push_back(binding.car().as_symbol());
     args.push_back(eval(binding.cdr().car(), env, ctx));
@@ -408,7 +407,7 @@ static EvalResult eval_case(Obj rest, Env *env, Ctx *ctx) {
   while (clauses.is_cons()) {
     Obj clause = clauses.car();
     if (!clause.is_cons()) {
-      throw std::runtime_error("case: clause must be a list");
+      throw SchemeError("case: clause must be a list");
     }
 
     Obj datums = clause.car();
@@ -420,7 +419,7 @@ static EvalResult eval_case(Obj rest, Env *env, Ctx *ctx) {
     );
 
     if (is_else && clauses.cdr().is_cons()) {
-      throw std::runtime_error("case: else must be the last clause");
+      throw SchemeError("case: else must be the last clause");
     }
 
     bool matched = is_else;
@@ -441,11 +440,11 @@ static EvalResult eval_case(Obj rest, Env *env, Ctx *ctx) {
   return Obj(Void{});
 }
 
-static EvalResult eval_cond(Obj clauses, Env *env, Ctx *ctx) {
+static std::optional<EvalResult> try_cond(Obj clauses, Env *env, Ctx *ctx) {
   while (clauses.is_cons()) {
     Obj clause = clauses.car();
     if (!clause.is_cons()) {
-      throw std::runtime_error("cond: clause must be a list");
+      throw SchemeError("cond: clause must be a list");
     }
 
     Obj test_expr = clause.car();
@@ -457,11 +456,11 @@ static EvalResult eval_cond(Obj clauses, Env *env, Ctx *ctx) {
     );
 
     if (is_else && clauses.cdr().is_cons()) {
-      throw std::runtime_error("cond: else must be the last clause");
+      throw SchemeError("cond: else must be the last clause");
     }
 
     if (is_else && body.is_null()) {
-      throw std::runtime_error("cond: else clause must have a body");
+      throw SchemeError("cond: else clause must have a body");
     }
 
     bool is_arrow = (
@@ -472,7 +471,7 @@ static EvalResult eval_cond(Obj clauses, Env *env, Ctx *ctx) {
     );
 
     if (is_arrow && !(body.cdr().is_cons() && body.cdr().cdr().is_null())) {
-      throw std::runtime_error("cond: expected one receiver after =>");
+      throw SchemeError("cond: expected one receiver after =>");
     }
 
     Obj test_val = is_else ? true : eval(test_expr, env, ctx);
@@ -491,7 +490,11 @@ static EvalResult eval_cond(Obj clauses, Env *env, Ctx *ctx) {
     clauses = clauses.cdr();
   }
 
-  return Obj(Void{});
+  return std::nullopt;
+}
+
+static EvalResult eval_cond(Obj clauses, Env *env, Ctx *ctx) {
+  return try_cond(clauses, env, ctx).value_or(Obj(Void{}));
 }
 
 // `and` returns the first false operand (identity #t); `or` returns the first
@@ -508,6 +511,36 @@ static EvalResult eval_and_or(Obj rest, Env *env, Ctx *ctx, bool conjunction) {
     rest = rest.cdr();
   }
   return TailCall{rest.car(), env};
+}
+
+static EvalResult eval_guard(Obj rest, Env *env, Ctx *ctx) {
+  check_arity(rest, "guard", 2, SIZE_MAX);
+  Obj spec = rest.car();
+
+  if (!spec.is_cons() || !spec.car().is_symbol()) {
+    throw SchemeError("guard: expected (variable clause ...)");
+  }
+
+  std::optional<SchemeError> caught;
+  try {
+    return eval(wrap_body(rest.cdr(), ctx), env, ctx);
+  }
+  catch (SchemeError &e) {
+    caught = std::move(e);
+  }
+
+  Env *handler_env = ctx->alloc<LocalEnv>(env);
+  handler_env->define(
+    spec.car().as_symbol(),
+    caught->payload
+      ? *caught->payload
+      : Obj(ctx->alloc<Error>(caught->what(), Null{}))
+  );
+
+  if (auto handled = try_cond(spec.cdr(), handler_env, ctx)) {
+    return *handled;
+  }
+  throw *caught;
 }
 
 static EvalResult eval_delay(Obj rest, Env *env, Ctx *ctx) {
@@ -545,7 +578,7 @@ static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
     auto result = env->lookup(expr.as_symbol());
 
     if (!result) {
-      throw std::runtime_error(
+      throw SchemeError(
         "undefined variable: " + expr.as_symbol().get_name()
       );
     }
@@ -611,6 +644,9 @@ static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
       else if (sym == ctx->sym_quasiquote) {
         return eval_quasiquote_form(rest, env, ctx);
       }
+      else if (sym == ctx->sym_guard) {
+        return eval_guard(rest, env, ctx);
+      }
       else if (sym == ctx->sym_delay) {
         return eval_delay(rest, env, ctx);
       }
@@ -652,7 +688,7 @@ void bind_args(
 ) {
   if (variadic) {
     if (args.size() + 1 < params.size()) {
-      throw std::runtime_error("too few arguments");
+      throw SchemeError("too few arguments");
     }
     for (size_t i = 0; i + 1 < params.size(); i += 1) {
       env->define(params[i], args[i]);
@@ -664,7 +700,7 @@ void bind_args(
   }
   else {
     if (args.size() != params.size()) {
-      throw std::runtime_error("wrong number of arguments");
+      throw SchemeError("wrong number of arguments");
     }
     for (size_t i = 0; i < params.size(); i += 1) {
       env->define(params[i], args[i]);
