@@ -7,6 +7,7 @@
 #include <ranges>
 #include <string>
 #include <type_traits>
+#include <utility>
 
 Symbol::Symbol(const std::string *ptr): ptr {ptr} {}
 
@@ -221,10 +222,8 @@ bool Obj::equals(Obj other) const {
         as_vector()->data, other.as_vector()->data,
         [](Obj x, Obj y) { return x.equals(y); }
       );
-
-    default:
-      return false;
   }
+  std::unreachable();
 }
 
 static std::string render(Obj obj, bool write);
@@ -325,10 +324,8 @@ static std::string render(Obj obj, bool write) {
 
     case Type::Void:
       return "#<void>";
-
-    default:
-      return "???";
   }
+  std::unreachable();
 }
 
 std::string Obj::stringify_type() const {
@@ -346,8 +343,8 @@ std::string Obj::stringify_type() const {
     case Type::Error: return "error";
     case Type::Null: return "null";
     case Type::Void: return "void";
-    default: return "???";
   }
+  std::unreachable();
 }
 
 Obj Obj::car() const {

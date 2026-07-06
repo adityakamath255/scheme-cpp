@@ -106,19 +106,17 @@ class Lexer {
 
   bool skip_whitespace_and_comments() {
     while (true) {
-      size_t old_curr = curr;
       skip_whitespace();
 
       if (match(";", false)) {
         skip_semicolon_comment();
       }
-
-      if (match("#|", false)) {
+      else if (match("#|", false)) {
         if (!skip_hash_comment()) {
           return false;
         }
       }
-      if (curr == old_curr) {
+      else {
         return true;
       }
     }

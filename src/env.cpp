@@ -50,6 +50,12 @@ std::optional<Obj> LocalEnv::lookup(Symbol sym) const {
 }
 
 void LocalEnv::define(Symbol sym, Obj obj) {
+  for (auto &[k, v] : bindings) {
+    if (k == sym) {
+      v = obj;
+      return;
+    }
+  }
   bindings.emplace_back(sym, obj);
 }
 

@@ -13,6 +13,7 @@
 #include <iostream>
 #include <ranges>
 #include <sstream>
+#include <utility>
 
 // --- helpers ---
 
@@ -410,9 +411,9 @@ static Obj builtin_eq(const std::vector<Obj> &args, Ctx *) {
       case Type::Error: return a.as_error() == b.as_error();
       case Type::Null:
       case Type::Void: return true;
-      default: return false;
     }
   }
+  std::unreachable();
 }
 
 static Obj builtin_equal(const std::vector<Obj> &args, Ctx *) {

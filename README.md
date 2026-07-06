@@ -156,7 +156,7 @@ Booleans, characters, symbols, fixnums, inexact reals, and null/void are not hea
 ./run_tests.sh
 ```
 
-Tests are written in Scheme using a small framework (`tests/framework.scm`) that provides `assert` and `summary`. There are 11 test files covering arithmetic, closures, lists, strings, vectors, special forms, preamble functions, tail calls, and stress scenarios (10k-element lists, heavy GC pressure, deeply nested closures, bulk vector allocation).
+Tests are written in Scheme using a small framework (`tests/framework.scm`) that provides `assert` and `summary`. There are 15 test files covering arithmetic, numbers, closures, lists, strings, chars, vectors, special forms, macros, errors, streams, preamble functions, tail calls, integration, and stress scenarios (10k-element lists, heavy GC pressure, deeply nested closures, bulk vector allocation).
 
 ## Source layout
 
