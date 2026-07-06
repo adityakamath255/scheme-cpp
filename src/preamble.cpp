@@ -39,16 +39,18 @@ const std::string_view preamble = R"(
   ;; --- higher-order ---
 
   (define (map f . lists)
+    (define (single lst acc)
+      (if (null? lst)
+          (reverse acc)
+          (single (cdr lst) (cons (f (car lst)) acc))))
+    (define (multi lists acc)
+      (if (any null? lists)
+          (reverse acc)
+          (multi (map cdr lists)
+                 (cons (apply f (map car lists)) acc))))
     (if (null? (cdr lists))
-        (let ((lst (car lists)))
-          (if (null? lst)
-              '()
-              (cons (f (car lst))
-                    (map f (cdr lst)))))
-        (if (any null? lists)
-            '()
-            (cons (apply f (map car lists))
-                  (apply map f (map cdr lists))))))
+        (single (car lists) '())
+        (multi lists '())))
 
   (define (for-each f . lists)
     (if (null? (cdr lists))
@@ -61,11 +63,14 @@ const std::string_view preamble = R"(
                    (apply for-each f (map cdr lists))))))
 
   (define (filter pred lst)
-    (if (null? lst)
-        '()
-        (if (pred (car lst))
-            (cons (car lst) (filter pred (cdr lst)))
-            (filter pred (cdr lst)))))
+    (define (iter lst acc)
+      (if (null? lst)
+          (reverse acc)
+          (iter (cdr lst)
+                (if (pred (car lst))
+                    (cons (car lst) acc)
+                    acc))))
+    (iter lst '()))
 
   (define (reduce f init lst)
     (if (null? lst)
@@ -73,9 +78,11 @@ const std::string_view preamble = R"(
         (reduce f (f init (car lst)) (cdr lst))))
 
   (define (fold-right f init lst)
-    (if (null? lst)
-        init
-        (f (car lst) (fold-right f init (cdr lst)))))
+    (define (iter lst acc)
+      (if (null? lst)
+          acc
+          (iter (cdr lst) (f (car lst) acc))))
+    (iter (reverse lst) init))
 
   ;; --- list operations ---
 
@@ -90,12 +97,17 @@ const std::string_view preamble = R"(
         (list-tail (cdr lst) (- k 1))))
 
   (define (append . lists)
-    (cond ((null? lists) '())
-          ((null? (cdr lists)) (car lists))
-          ((null? (car lists)) (apply append (cdr lists)))
-          (else (cons (car (car lists))
-                      (apply append (cons (cdr (car lists))
-                                          (cdr lists)))))))
+    (define (prepend lst acc)
+      (if (null? lst)
+          acc
+          (prepend (cdr lst) (cons (car lst) acc))))
+    (define (iter lists acc)
+      (if (null? (cdr lists))
+          (prepend acc (car lists))
+          (iter (cdr lists) (prepend (car lists) acc))))
+    (if (null? lists)
+        '()
+        (iter lists '())))
 
   (define (append! . lists)
     (define (find-last-pair lst)
@@ -121,10 +133,12 @@ const std::string_view preamble = R"(
     (iter lst '()))
 
   (define (zip a b)
-    (if (or (null? a) (null? b))
-        '()
-        (cons (list (car a) (car b))
-              (zip (cdr a) (cdr b)))))
+    (define (iter a b acc)
+      (if (or (null? a) (null? b))
+          (reverse acc)
+          (iter (cdr a) (cdr b)
+                (cons (list (car a) (car b)) acc))))
+    (iter a b '()))
 
   (define (iota count . rest)
     (let ((start (if (null? rest) 0 (car rest)))

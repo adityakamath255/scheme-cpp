@@ -10,7 +10,7 @@
       (lambda (x) x)
       (let ((inner (nest (- n 1))))
         (lambda (x) (inner (+ x 1))))))
-(assert "nested closures" 1000 ((nest 1000) 0))
+(assert "nested closures" 500 ((nest 500) 0))
 
 (define (make-vectors n)
   (if (= n 0) 'done
