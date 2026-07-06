@@ -708,7 +708,18 @@ void bind_args(
   }
 }
 
+struct EvalFrame {
+  Ctx *ctx;
+  EvalFrame(Ctx *ctx): ctx {ctx} {
+    if (!ctx->push_eval()) {
+      throw SchemeError("recursion too deep");
+    }
+  }
+  ~EvalFrame() { ctx->pop_eval(); }
+};
+
 Obj eval(Obj expr, Env *env, Ctx *ctx) {
+  EvalFrame frame {ctx};
   EvalResult result = eval_expr(expr, env, ctx);
   while (auto *tc = std::get_if<TailCall>(&result)) {
     result = eval_expr(tc->expr, tc->env, ctx);

@@ -10,6 +10,7 @@ class Ctx {
   std::vector<HeapEntity *> live;
   std::unordered_set<std::string> interned;
   size_t gc_threshold;
+  size_t eval_depth;
   std::string output;
 
 public:
@@ -32,6 +33,9 @@ public:
 
   bool should_recycle() const;
   void recycle();
+
+  bool push_eval();
+  void pop_eval();
 
   Symbol sym_quote, sym_if, sym_define, sym_set, sym_lambda,
          sym_begin, sym_let, sym_letstar, sym_letrec, sym_cond,

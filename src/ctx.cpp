@@ -1,10 +1,15 @@
 #include "ctx.hpp"
 #include <utility>
 
+// past this eval nesting, native overflows the C stack and wasm hits the JS
+// engine's (uncatchable) call limit; both well above it.
+static constexpr size_t max_eval_depth = 1000;
+
 Ctx::Ctx():
   live {},
   interned {},
   gc_threshold {1024},
+  eval_depth {0},
   global_env {alloc<GlobalEnv>()},
   sym_quote {intern("quote")},
   sym_if {intern("if")},
@@ -53,6 +58,18 @@ Symbol Ctx::intern(std::string_view name) {
 
 bool Ctx::should_recycle() const {
   return live.size() > gc_threshold;
+}
+
+bool Ctx::push_eval() {
+  if (eval_depth >= max_eval_depth) {
+    return false;
+  }
+  eval_depth += 1;
+  return true;
+}
+
+void Ctx::pop_eval() {
+  eval_depth -= 1;
 }
 
 void Ctx::recycle() {
