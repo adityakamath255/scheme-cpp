@@ -800,36 +800,23 @@ static Obj builtin_exit(const std::vector<Obj> &args, Ctx *) {
   std::exit(code);
 }
 
-static Obj builtin_apply(const std::vector<Obj> &args, Ctx *ctx) {
-  check_arity(args, "apply", 2, SIZE_MAX);
-
-  Obj proc = args[0];
-  if (!proc.is_procedure() && !proc.is_builtin()) {
-    throw SchemeError(
-      "apply: expected procedure, got " + proc.stringify_type()
-    );
-  }
-
-  std::vector<Obj> call_args(args.begin() + 1, args.end() - 1);
-
-  ListView rest{args.back()};
-
-  if (!rest.tail().is_null()) {
-    throw SchemeError("apply: last argument must be a proper list");
-  }
-
-  call_args.append_range(rest);
+Obj builtin_apply(const std::vector<Obj> &args, Ctx *ctx) {
+  auto [proc, call_args] = splice_apply(args);
 
   if (proc.is_builtin()) {
     return proc.as_builtin()->fn(call_args, ctx);
   }
 
-  else {
+  if (proc.is_procedure()) {
     Procedure *p = proc.as_procedure();
     Env *call_env = ctx->alloc<LocalEnv>(p->env);
-    bind_args(call_env, p->params, call_args, p->variadic, ctx);
+    p->formals.bind(call_env, call_args, ctx);
     return eval(p->body, call_env, ctx);
   }
+
+  throw SchemeError(
+    "apply: expected procedure, got " + proc.stringify_type()
+  );
 }
 
 // --- public ---

@@ -10,31 +10,7 @@ Ctx::Ctx():
   interned {},
   gc_threshold {1024},
   eval_depth {0},
-  global_env {alloc<GlobalEnv>()},
-  sym_quote {intern("quote")},
-  sym_if {intern("if")},
-  sym_define {intern("define")},
-  sym_set {intern("set!")},
-  sym_lambda {intern("lambda")},
-  sym_begin {intern("begin")},
-  sym_let {intern("let")},
-  sym_letstar {intern("let*")},
-  sym_letrec {intern("letrec")},
-  sym_cond {intern("cond")},
-  sym_and {intern("and")},
-  sym_or {intern("or")},
-  sym_quasiquote {intern("quasiquote")},
-  sym_unquote {intern("unquote")},
-  sym_unquote_splicing {intern("unquote-splicing")},
-  sym_else {intern("else")},
-  sym_arrow {intern("=>")},
-  sym_define_macro {intern("define-macro")},
-  sym_when {intern("when")},
-  sym_unless {intern("unless")},
-  sym_case {intern("case")},
-  sym_delay {intern("delay")},
-  sym_cons_stream {intern("cons-stream")},
-  sym_guard {intern("guard")}
+  global_env {alloc<GlobalEnv>()}
 {}
 
 Ctx::~Ctx() {

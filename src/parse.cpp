@@ -95,16 +95,16 @@ class Parser {
         return parse_list();
 
       case Token::QUOTE:
-        return parse_quoted(ctx->sym_quote);
+        return parse_quoted(ctx->intern("quote"));
 
       case Token::BACKTICK:
-        return parse_quoted(ctx->sym_quasiquote);
+        return parse_quoted(ctx->intern("quasiquote"));
 
       case Token::COMMA:
-        return parse_quoted(ctx->sym_unquote);
+        return parse_quoted(ctx->intern("unquote"));
 
       case Token::SPLICE_COMMA:
-        return parse_quoted(ctx->sym_unquote_splicing);
+        return parse_quoted(ctx->intern("unquote-splicing"));
 
       case Token::TRUE:
         return true;

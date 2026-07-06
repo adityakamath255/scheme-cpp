@@ -246,20 +246,21 @@ struct Builtin : HeapEntity {
   Builtin(Fn fn);
 };
 
+struct Formals {
+  std::vector<Symbol> names;
+  bool variadic;
+
+  static Formals parse(Obj formals);
+  void bind(Env *env, const std::vector<Obj> &args, Ctx *ctx) const;
+};
+
 struct Procedure : HeapEntity {
-  std::vector<Symbol> params;
+  Formals formals;
   Obj body;
   Env *env;
-  bool variadic;
   bool macro;
 
-  Procedure(
-    std::vector<Symbol> params,
-    Obj body,
-    Env *env,
-    bool variadic,
-    bool macro
-  );
+  Procedure(Formals formals, Obj body, Env *env, bool macro);
 
   void trace(std::vector<HeapEntity *> *) const override;
 };

@@ -440,17 +440,10 @@ void Vector::trace(std::vector<HeapEntity *> *worklist) const {
 
 Builtin::Builtin(Builtin::Fn fn): fn {fn} {}
 
-Procedure::Procedure(
-  std::vector<Symbol> params,
-  Obj body,
-  Env *env,
-  bool variadic,
-  bool macro
-): 
-  params {std::move(params)}, 
-  body {body}, 
-  env {env}, 
-  variadic {variadic},
+Procedure::Procedure(Formals formals, Obj body, Env *env, bool macro):
+  formals {std::move(formals)},
+  body {body},
+  env {env},
   macro {macro}
 {}
 

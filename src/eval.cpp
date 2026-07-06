@@ -1,8 +1,10 @@
 #include "eval.hpp"
 #include "ctx.hpp"
+#include "builtins.hpp"
 
 #include <format>
 #include <ranges>
+#include <unordered_map>
 
 // --- internal types ---
 
@@ -53,42 +55,57 @@ static std::vector<Obj> eval_args(Obj list, Env *env, Ctx *ctx) {
     | std::ranges::to<std::vector>();
 }
 
-struct Params {
-  std::vector<Symbol> names;
-  bool variadic;
-};
-
-static Params extract_params(Obj formals) {
+Formals Formals::parse(Obj formals) {
   // (lambda x body)
   if (formals.is_symbol()) {
     return {{formals.as_symbol()}, true};
   }
 
   // (lambda (a b) body) or (lambda (a . b) body)
-  else {
-    ListView params{formals};
-    std::vector<Symbol> names;
+  ListView params{formals};
+  std::vector<Symbol> names;
 
-    for (Obj p : params) {
-      if (!p.is_symbol()) {
-        throw SchemeError("parameter must be a symbol");
-      }
-      names.push_back(p.as_symbol());
+  for (Obj p : params) {
+    if (!p.is_symbol()) {
+      throw SchemeError("parameter must be a symbol");
     }
-
-    Obj tail = params.tail();
-
-    if (tail.is_null()) {
-      return {std::move(names), false};
-    }
-    else if (tail.is_symbol()) {
-      names.push_back(tail.as_symbol());
-      return {std::move(names), true};
-    }
-    else {
-      throw SchemeError("invalid parameter list");
-    }
+    names.push_back(p.as_symbol());
   }
+
+  Obj tail = params.tail();
+
+  if (tail.is_null()) {
+    return {std::move(names), false};
+  }
+  else if (tail.is_symbol()) {
+    names.push_back(tail.as_symbol());
+    return {std::move(names), true};
+  }
+  else {
+    throw SchemeError("invalid parameter list");
+  }
+}
+
+void Formals::bind(Env *env, const std::vector<Obj> &args, Ctx *ctx) const {
+  size_t fixed = names.size() - (variadic ? 1 : 0);
+
+  if (args.size() < fixed) {
+    throw SchemeError("too few arguments");
+  }
+  if (!variadic && args.size() > fixed) {
+    throw SchemeError("too many arguments");
+  }
+
+  for (size_t i = 0; i < fixed; i += 1) {
+    env->define(names[i], args[i]);
+  }
+  if (variadic) {
+    env->define(names.back(), list_from(args | std::views::drop(fixed), ctx));
+  }
+}
+
+static bool is_keyword(Obj obj, std::string_view name) {
+  return obj.is_symbol() && obj.as_symbol().get_name() == name;
 }
 
 static Obj wrap_body(Obj body_list, Ctx *ctx) {
@@ -96,7 +113,7 @@ static Obj wrap_body(Obj body_list, Ctx *ctx) {
     return body_list.car();
   }
   return ctx->alloc<Cons>(
-    ctx->sym_begin,
+    ctx->intern("begin"),
     body_list
   );
 }
@@ -109,25 +126,44 @@ static EvalResult eval_body(Obj list, Env *env, Ctx *ctx) {
   return TailCall{list.car(), env};
 }
 
-static EvalResult apply_procedure(
-  Obj proc,
-  const std::vector<Obj> &args,
-  Ctx *ctx
-) {
-  if (proc.is_procedure()) {
-    Procedure *p = proc.as_procedure();
-    Env *new_env = ctx->alloc<LocalEnv>(p->env);
-    bind_args(new_env, p->params, args, p->variadic, ctx);
-    return TailCall{p->body, new_env};
+std::pair<Obj, std::vector<Obj>> splice_apply(const std::vector<Obj> &args) {
+  if (args.size() < 2) {
+    throw SchemeError("apply: expected at least 2 arguments");
   }
 
-  else if (proc.is_builtin()) {
-    return proc.as_builtin()->fn(args, ctx);
+  ListView rest{args.back()};
+  if (!rest.tail().is_null()) {
+    throw SchemeError("apply: last argument must be a proper list");
   }
 
-  throw SchemeError(
-    "not a procedure: " + proc.to_display()
-  );
+  std::vector<Obj> call_args(args.begin() + 1, args.end() - 1);
+  call_args.append_range(rest);
+  return {args.front(), std::move(call_args)};
+}
+
+static EvalResult apply_procedure(Obj proc, std::vector<Obj> args, Ctx *ctx) {
+  while (true) {
+    if (proc.is_procedure()) {
+      Procedure *p = proc.as_procedure();
+      Env *new_env = ctx->alloc<LocalEnv>(p->env);
+      p->formals.bind(new_env, args, ctx);
+      return TailCall{p->body, new_env};
+    }
+
+    if (proc.is_builtin()) {
+      Builtin *b = proc.as_builtin();
+      if (b->fn != builtin_apply) {
+        return b->fn(args, ctx);
+      }
+      auto [next_proc, next_args] = splice_apply(args);
+      proc = next_proc;
+      args = std::move(next_args);
+    }
+
+    else {
+      throw SchemeError("not a procedure: " + proc.to_display());
+    }
+  }
 }
 
 static Obj eval_quasiquote(Obj obj, Env *env, Ctx *ctx) {
@@ -144,10 +180,7 @@ static Obj eval_quasiquote(Obj obj, Env *env, Ctx *ctx) {
     return obj;
   }
 
-  else if (
-    obj.car().is_symbol()
-    && obj.car().as_symbol() == ctx->sym_unquote
-  ) {
+  else if (is_keyword(obj.car(), "unquote")) {
     return eval(obj.cdr().car(), env, ctx);
   }
 
@@ -156,11 +189,7 @@ static Obj eval_quasiquote(Obj obj, Env *env, Ctx *ctx) {
     std::vector<Obj> elements;
 
     for (Obj elem : items) {
-      if (
-        elem.is_cons()
-        && elem.car().is_symbol()
-        && elem.car().as_symbol() == ctx->sym_unquote_splicing
-      ) {
+      if (elem.is_cons() && is_keyword(elem.car(), "unquote-splicing")) {
         elements.append_range(ListView{eval(elem.cdr().car(), env, ctx)});
       }
       else {
@@ -204,13 +233,12 @@ static EvalResult eval_define(Obj rest, Env *env, Ctx *ctx) {
 
   if (target.is_cons()) {
     Symbol fname = target.car().as_symbol();
-    auto [params, variadic] = extract_params(target.cdr());
     Obj body = wrap_body(rest.cdr(), ctx);
 
     env->define(
       fname,
       ctx->alloc<Procedure>(
-        std::move(params), body, env, variadic, false
+        Formals::parse(target.cdr()), body, env, false
       )
     );
 
@@ -244,13 +272,12 @@ static EvalResult eval_define_macro(Obj rest, Env *env, Ctx *ctx) {
 
   if (target.is_cons()) {
     Symbol name = target.car().as_symbol();
-    auto [params, variadic] = extract_params(target.cdr());
     Obj body = wrap_body(rest.cdr(), ctx);
 
     env->define(
       name,
       ctx->alloc<Procedure>(
-        std::move(params), body, env, variadic, true
+        Formals::parse(target.cdr()), body, env, true
       )
     );
   }
@@ -267,7 +294,7 @@ static EvalResult eval_define_macro(Obj rest, Env *env, Ctx *ctx) {
 
     env->define(
       target.as_symbol(),
-      ctx->alloc<Procedure>(p->params, p->body, p->env, p->variadic, true)
+      ctx->alloc<Procedure>(p->formals, p->body, p->env, true)
     );
   }
 
@@ -302,10 +329,9 @@ static EvalResult eval_set(Obj rest, Env *env, Ctx *ctx) {
 
 static EvalResult eval_lambda(Obj rest, Env *env, Ctx *ctx) {
   check_arity(rest, "lambda", 2, SIZE_MAX);
-  auto [params, variadic] = extract_params(rest.car());
   Obj body = wrap_body(rest.cdr(), ctx);
   return Obj(ctx->alloc<Procedure>(
-    std::move(params), body, env, variadic, false
+    Formals::parse(rest.car()), body, env, false
   ));
 }
 
@@ -378,12 +404,12 @@ static EvalResult eval_named_let(Obj rest, Env *env, Ctx *ctx) {
 
   Env *loop_env = ctx->alloc<LocalEnv>(env);
   Procedure *proc = ctx->alloc<Procedure>(
-    std::move(params), body, loop_env, false, false
+    Formals{std::move(params), false}, body, loop_env, false
   );
   loop_env->define(name, proc);
 
   Env *call_env = ctx->alloc<LocalEnv>(loop_env);
-  bind_args(call_env, proc->params, args, false, ctx);
+  proc->formals.bind(call_env, args, ctx);
   return TailCall{proc->body, call_env};
 }
 
@@ -399,92 +425,24 @@ static EvalResult eval_when(Obj rest, Env *env, Ctx *ctx, bool negate) {
   return eval_body(body, env, ctx);
 }
 
-static EvalResult eval_case(Obj rest, Env *env, Ctx *ctx) {
-  check_arity(rest, "case", 1, SIZE_MAX);
-  Obj key = eval(rest.car(), env, ctx);
-  Obj clauses = rest.cdr();
-
+template<class Match>
+static std::optional<EvalResult> eval_clauses(
+  Obj clauses, std::string_view name, Match match
+) {
   while (clauses.is_cons()) {
     Obj clause = clauses.car();
     if (!clause.is_cons()) {
-      throw SchemeError("case: clause must be a list");
+      throw SchemeError(std::format("{}: clause must be a list", name));
     }
 
-    Obj datums = clause.car();
-    Obj body = clause.cdr();
-
-    bool is_else = (
-      datums.is_symbol()
-      && datums.as_symbol() == ctx->sym_else
-    );
+    bool is_else = is_keyword(clause.car(), "else");
 
     if (is_else && clauses.cdr().is_cons()) {
-      throw SchemeError("case: else must be the last clause");
+      throw SchemeError(std::format("{}: else must be the last clause", name));
     }
 
-    bool matched = is_else;
-    for (Obj d = datums; !matched && d.is_cons(); d = d.cdr()) {
-      matched = key.equals(d.car());
-    }
-
-    if (matched) {
-      if (body.is_null()) {
-        return Obj(Void{});
-      }
-      return eval_body(body, env, ctx);
-    }
-
-    clauses = clauses.cdr();
-  }
-
-  return Obj(Void{});
-}
-
-static std::optional<EvalResult> try_cond(Obj clauses, Env *env, Ctx *ctx) {
-  while (clauses.is_cons()) {
-    Obj clause = clauses.car();
-    if (!clause.is_cons()) {
-      throw SchemeError("cond: clause must be a list");
-    }
-
-    Obj test_expr = clause.car();
-    Obj body = clause.cdr();
-
-    bool is_else = (
-      test_expr.is_symbol()
-      && test_expr.as_symbol() == ctx->sym_else
-    );
-
-    if (is_else && clauses.cdr().is_cons()) {
-      throw SchemeError("cond: else must be the last clause");
-    }
-
-    if (is_else && body.is_null()) {
-      throw SchemeError("cond: else clause must have a body");
-    }
-
-    bool is_arrow = (
-      !is_else
-      && body.is_cons()
-      && body.car().is_symbol()
-      && body.car().as_symbol() == ctx->sym_arrow
-    );
-
-    if (is_arrow && !(body.cdr().is_cons() && body.cdr().cdr().is_null())) {
-      throw SchemeError("cond: expected one receiver after =>");
-    }
-
-    Obj test_val = is_else ? true : eval(test_expr, env, ctx);
-
-    if (is_else || test_val.is_true()) {
-      if (body.is_null()) {
-        return test_val;
-      }
-      if (is_arrow) {
-        Obj receiver = eval(body.cdr().car(), env, ctx);
-        return apply_procedure(receiver, {test_val}, ctx);
-      }
-      return eval_body(body, env, ctx);
+    if (auto result = match(clause, is_else)) {
+      return result;
     }
 
     clauses = clauses.cdr();
@@ -493,8 +451,62 @@ static std::optional<EvalResult> try_cond(Obj clauses, Env *env, Ctx *ctx) {
   return std::nullopt;
 }
 
+static std::optional<EvalResult> try_cond(Obj clauses, Env *env, Ctx *ctx) {
+  return eval_clauses(clauses, "cond",
+    [&](Obj clause, bool is_else) -> std::optional<EvalResult> {
+      Obj body = clause.cdr();
+
+      if (is_else && body.is_null()) {
+        throw SchemeError("cond: else clause must have a body");
+      }
+
+      bool is_arrow =
+        !is_else && body.is_cons() && is_keyword(body.car(), "=>");
+
+      if (is_arrow && !(body.cdr().is_cons() && body.cdr().cdr().is_null())) {
+        throw SchemeError("cond: expected one receiver after =>");
+      }
+
+      Obj test_val = is_else ? Obj(true) : eval(clause.car(), env, ctx);
+      if (!is_else && test_val.is_false()) {
+        return std::nullopt;
+      }
+
+      if (body.is_null()) {
+        return EvalResult{test_val};
+      }
+      if (is_arrow) {
+        Obj receiver = eval(body.cdr().car(), env, ctx);
+        return apply_procedure(receiver, {test_val}, ctx);
+      }
+      return eval_body(body, env, ctx);
+    });
+}
+
 static EvalResult eval_cond(Obj clauses, Env *env, Ctx *ctx) {
-  return try_cond(clauses, env, ctx).value_or(Obj(Void{}));
+  return try_cond(clauses, env, ctx).value_or(EvalResult{Obj(Void{})});
+}
+
+static EvalResult eval_case(Obj rest, Env *env, Ctx *ctx) {
+  check_arity(rest, "case", 1, SIZE_MAX);
+  Obj key = eval(rest.car(), env, ctx);
+
+  return eval_clauses(rest.cdr(), "case",
+    [&](Obj clause, bool is_else) -> std::optional<EvalResult> {
+      bool matched = is_else;
+      for (Obj d = clause.car(); !matched && d.is_cons(); d = d.cdr()) {
+        matched = key.equals(d.car());
+      }
+      if (!matched) {
+        return std::nullopt;
+      }
+
+      Obj body = clause.cdr();
+      if (body.is_null()) {
+        return EvalResult{Obj(Void{})};
+      }
+      return eval_body(body, env, ctx);
+    }).value_or(EvalResult{Obj(Void{})});
 }
 
 // `and` returns the first false operand (identity #t); `or` returns the first
@@ -569,6 +581,38 @@ static EvalResult eval_apply(Obj head, Obj rest, Env *env, Ctx *ctx) {
   return apply_procedure(proc, eval_args(rest, env, ctx), ctx);
 }
 
+static EvalResult eval_let_form(Obj rest, Env *env, Ctx *ctx) {
+  if (rest.is_cons() && rest.car().is_symbol()) {
+    return eval_named_let(rest, env, ctx);
+  }
+  return eval_let(rest, env, ctx, LetKind::Plain);
+}
+
+using SpecialForm = EvalResult (*)(Obj rest, Env *env, Ctx *ctx);
+
+static const std::unordered_map<std::string_view, SpecialForm> special_forms = {
+  {"quote",        [](Obj r, Env *, Ctx *) { return eval_quote(r); }},
+  {"if",           eval_if},
+  {"define",       eval_define},
+  {"set!",         eval_set},
+  {"lambda",       eval_lambda},
+  {"begin",        eval_begin},
+  {"let",          eval_let_form},
+  {"let*",         [](Obj r, Env *e, Ctx *c) { return eval_let(r, e, c, LetKind::Star); }},
+  {"letrec",       [](Obj r, Env *e, Ctx *c) { return eval_let(r, e, c, LetKind::Rec); }},
+  {"when",         [](Obj r, Env *e, Ctx *c) { return eval_when(r, e, c, false); }},
+  {"unless",       [](Obj r, Env *e, Ctx *c) { return eval_when(r, e, c, true); }},
+  {"case",         eval_case},
+  {"cond",         eval_cond},
+  {"and",          [](Obj r, Env *e, Ctx *c) { return eval_and_or(r, e, c, true); }},
+  {"or",           [](Obj r, Env *e, Ctx *c) { return eval_and_or(r, e, c, false); }},
+  {"quasiquote",   eval_quasiquote_form},
+  {"guard",        eval_guard},
+  {"delay",        eval_delay},
+  {"cons-stream",  eval_cons_stream},
+  {"define-macro", eval_define_macro},
+};
+
 static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
   if (!expr.is_symbol() && !expr.is_cons()) {
     return expr;
@@ -593,118 +637,27 @@ static EvalResult eval_expr(Obj expr, Env *env, Ctx *ctx) {
     if (head.is_symbol()) {
       Symbol sym = head.as_symbol();
 
-      if (sym == ctx->sym_quote) {
-        return eval_quote(rest);
-      }
-      else if (sym == ctx->sym_if) {
-        return eval_if(rest, env, ctx);
-      }
-      else if (sym == ctx->sym_define) {
-        return eval_define(rest, env, ctx);
-      }
-      else if (sym == ctx->sym_set) {
-        return eval_set(rest, env, ctx);
-      }
-      else if (sym == ctx->sym_lambda) {
-        return eval_lambda(rest, env, ctx);
-      }
-      else if (sym == ctx->sym_begin) {
-        return eval_begin(rest, env, ctx);
-      }
-      else if (sym == ctx->sym_let) {
-        if (rest.is_cons() && rest.car().is_symbol()) {
-          return eval_named_let(rest, env, ctx);
-        }
-        return eval_let(rest, env, ctx, LetKind::Plain);
-      }
-      else if (sym == ctx->sym_letstar) {
-        return eval_let(rest, env, ctx, LetKind::Star);
-      }
-      else if (sym == ctx->sym_letrec) {
-        return eval_let(rest, env, ctx, LetKind::Rec);
-      }
-      else if (sym == ctx->sym_when) {
-        return eval_when(rest, env, ctx, false);
-      }
-      else if (sym == ctx->sym_unless) {
-        return eval_when(rest, env, ctx, true);
-      }
-      else if (sym == ctx->sym_case) {
-        return eval_case(rest, env, ctx);
-      }
-      else if (sym == ctx->sym_cond) {
-        return eval_cond(rest, env, ctx);
-      }
-      else if (sym == ctx->sym_and) {
-        return eval_and_or(rest, env, ctx, true);
-      }
-      else if (sym == ctx->sym_or) {
-        return eval_and_or(rest, env, ctx, false);
-      }
-      else if (sym == ctx->sym_quasiquote) {
-        return eval_quasiquote_form(rest, env, ctx);
-      }
-      else if (sym == ctx->sym_guard) {
-        return eval_guard(rest, env, ctx);
-      }
-      else if (sym == ctx->sym_delay) {
-        return eval_delay(rest, env, ctx);
-      }
-      else if (sym == ctx->sym_cons_stream) {
-        return eval_cons_stream(rest, env, ctx);
-      }
-      else if (sym == ctx->sym_define_macro) {
-        return eval_define_macro(rest, env, ctx);
+      if (auto it = special_forms.find(sym.get_name()); it != special_forms.end()) {
+        return it->second(rest, env, ctx);
       }
 
       auto macro_val = env->lookup(sym);
 
       if (
-        macro_val 
+        macro_val
         && macro_val->is_procedure()
         && macro_val->as_procedure()->macro
       ) {
         Procedure *p = macro_val->as_procedure();
         std::vector<Obj> raw_args = std::ranges::to<std::vector>(ListView{rest});
         Env *macro_env = ctx->alloc<LocalEnv>(p->env);
-        bind_args(macro_env, p->params, raw_args, p->variadic, ctx);
+        p->formals.bind(macro_env, raw_args, ctx);
         Obj expanded = eval(p->body, macro_env, ctx);
         return TailCall{expanded, env};
       }
     }
 
     return eval_apply(head, rest, env, ctx);
-  }
-}
-
-// --- public ---
-
-void bind_args(
-  Env *env,
-  const std::vector<Symbol> &params,
-  const std::vector<Obj> &args,
-  bool variadic,
-  Ctx *ctx
-) {
-  if (variadic) {
-    if (args.size() + 1 < params.size()) {
-      throw SchemeError("too few arguments");
-    }
-    for (size_t i = 0; i + 1 < params.size(); i += 1) {
-      env->define(params[i], args[i]);
-    }
-    env->define(
-      params.back(),
-      list_from(args | std::views::drop(params.size() - 1), ctx)
-    );
-  }
-  else {
-    if (args.size() != params.size()) {
-      throw SchemeError("wrong number of arguments");
-    }
-    for (size_t i = 0; i < params.size(); i += 1) {
-      env->define(params[i], args[i]);
-    }
   }
 }
 

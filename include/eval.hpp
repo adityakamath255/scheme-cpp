@@ -1,12 +1,8 @@
 #pragma once
 #include "types.hpp"
 
-void bind_args(
-  Env *env,
-  const std::vector<Symbol> &params,
-  const std::vector<Obj> &args,
-  bool variadic,
-  Ctx *ctx
-);
+#include <utility>
+
+std::pair<Obj, std::vector<Obj>> splice_apply(const std::vector<Obj> &args);
 
 Obj eval(Obj expr, Env *env, Ctx *ctx);
