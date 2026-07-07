@@ -298,7 +298,9 @@ struct SchemeError : std::runtime_error {
   std::optional<Obj> payload;
 
   explicit SchemeError(const std::string &message);
-  SchemeError(Obj payload, const std::string &rendered);
+  static SchemeError raised(Obj payload);
+
+  Obj as_condition(Ctx *ctx);
 };
 
 template<>

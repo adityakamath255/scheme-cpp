@@ -17,6 +17,23 @@ using EvalResult = std::variant<Obj, TailCall>;
 
 // --- arity checking ---
 
+void check_arity(size_t count, std::string_view name, size_t min, size_t max) {
+  if (count < min || count > max) {
+    throw SchemeError(
+      std::format(
+        "{}: expected {} arguments, got {}",
+        name,
+        (
+          min == max
+          ? std::to_string(min)
+          : std::format("{}-{}", min, max)
+        ),
+        count
+      )
+    );
+  }
+}
+
 static void check_arity(
   Obj rest,
   std::string_view name,
@@ -31,20 +48,7 @@ static void check_arity(
     );
   }
 
-  if (profile.size < min || profile.size > max) {
-    throw SchemeError(
-      std::format(
-        "{}: expected {} arguments, got {}",
-        name,
-        (
-          min == max
-          ? std::to_string(min)
-          : std::format("{}-{}", min, max)
-        ),
-        profile.size
-      )
-    );
-  }
+  check_arity(profile.size, name, min, max);
 }
 
 // --- helpers ---
@@ -542,12 +546,7 @@ static EvalResult eval_guard(Obj rest, Env *env, Ctx *ctx) {
   }
 
   Env *handler_env = ctx->alloc<LocalEnv>(env);
-  handler_env->define(
-    spec.car().as_symbol(),
-    caught->payload
-      ? *caught->payload
-      : Obj(ctx->alloc<Error>(caught->what(), Null{}))
-  );
+  handler_env->define(spec.car().as_symbol(), caught->as_condition(ctx));
 
   if (auto handled = try_cond(spec.cdr(), handler_env, ctx)) {
     return *handled;

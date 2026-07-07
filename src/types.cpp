@@ -1,6 +1,7 @@
 #include "types.hpp"
 #include "env.hpp"
 #include "eval.hpp"
+#include "ctx.hpp"
 
 #include <algorithm>
 #include <format>
@@ -486,12 +487,23 @@ void Error::trace(std::vector<HeapEntity *> *worklist) const {
   trace_child(irritants, worklist);
 }
 
+static std::string render_condition(Obj payload) {
+  return payload.is_error()
+    ? payload.as_error()->describe()
+    : "uncaught exception: " + payload.to_write();
+}
+
 SchemeError::SchemeError(const std::string &message):
   std::runtime_error(message),
   payload {}
 {}
 
-SchemeError::SchemeError(Obj payload, const std::string &rendered):
-  std::runtime_error(rendered),
-  payload {payload}
-{}
+SchemeError SchemeError::raised(Obj payload) {
+  SchemeError e(render_condition(payload));
+  e.payload = payload;
+  return e;
+}
+
+Obj SchemeError::as_condition(Ctx *ctx) {
+  return payload ? *payload : Obj(ctx->alloc<Error>(what(), Null{}));
+}

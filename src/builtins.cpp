@@ -24,20 +24,7 @@ static void check_arity(
   size_t min,
   size_t max
 ) {
-  if (args.size() < min || args.size() > max) {
-    throw SchemeError(
-      std::format(
-        "{}: expected {} arguments, got {}",
-        name,
-        (
-          min == max
-          ? std::to_string(min)
-          : std::format("{}-{}", min, max)
-        ),
-        args.size()
-      )
-    );
-  }
+  check_arity(args.size(), name, min, max);
 }
 
 static void check_type(
@@ -724,18 +711,12 @@ static Obj builtin_error(const std::vector<Obj> &args, Ctx *ctx) {
     args[0].to_display(),
     list_from(args | std::views::drop(1), ctx)
   );
-  throw SchemeError(err, err->describe());
+  throw SchemeError::raised(err);
 }
 
 static Obj builtin_raise(const std::vector<Obj> &args, Ctx *) {
   check_arity(args, "raise", 1, 1);
-  Obj payload = args[0];
-  throw SchemeError(
-    payload,
-    payload.is_error()
-      ? payload.as_error()->describe()
-      : "uncaught exception: " + payload.to_write()
-  );
+  throw SchemeError::raised(args[0]);
 }
 
 static Obj builtin_is_error_object(const std::vector<Obj> &args, Ctx *) {
