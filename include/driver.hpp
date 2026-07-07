@@ -1,5 +1,6 @@
 #pragma once
 #include "types.hpp"
+#include <functional>
 #include <string_view>
 #include <variant>
 
@@ -11,4 +12,8 @@ struct Incomplete {};
 using ReadEval = std::variant<Evaluated, Exhausted, Incomplete>;
 
 ReadEval read_eval(std::string_view source, Ctx *ctx);
-void run_all(std::string_view source, Ctx *ctx);
+void run_all(
+  std::string_view source,
+  Ctx *ctx,
+  const std::function<void(std::string_view)> &sink
+);

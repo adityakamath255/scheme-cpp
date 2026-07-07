@@ -25,7 +25,7 @@ class Session {
 public:
   Session() {
     install_builtins(&ctx);
-    run_all(preamble, &ctx);
+    run_all(preamble, &ctx, [](std::string_view) {});
   }
 
   emscripten::val run(const std::string &source, emscripten::val emit) {

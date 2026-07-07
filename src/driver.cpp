@@ -20,13 +20,18 @@ ReadEval read_eval(std::string_view source, Ctx *ctx) {
   return Evaluated{value, ctx->take_output(), result->rest};
 }
 
-void run_all(std::string_view source, Ctx *ctx) {
+void run_all(
+  std::string_view source,
+  Ctx *ctx,
+  const std::function<void(std::string_view)> &sink
+) {
   for (;;) {
     ReadEval r = read_eval(source, ctx);
     auto *e = std::get_if<Evaluated>(&r);
     if (!e) {
       break;
     }
+    sink(e->output);
     source = e->rest;
   }
 }

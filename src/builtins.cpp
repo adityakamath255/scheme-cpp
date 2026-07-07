@@ -1,5 +1,6 @@
 #include "builtins.hpp"
 #include "ctx.hpp"
+#include "driver.hpp"
 #include "eval.hpp"
 #include "lex.hpp"
 #include "parse.hpp"
@@ -773,15 +774,7 @@ static Obj builtin_load(const std::vector<Obj> &args, Ctx *ctx) {
   buf << file.rdbuf();
   std::string source = buf.str();
 
-  Env *env = ctx->global_env;
-  while (true) {
-    auto result = lex(source);
-    if (!result || result->tokens.empty()) break;
-    Obj expr = parse(result->tokens, ctx);
-    eval(expr, env, ctx);
-    source = result->rest;
-    if (ctx->should_recycle()) ctx->recycle();
-  }
+  run_all(source, ctx, [ctx](std::string_view s) { ctx->print(s); });
 
   return Obj(Void{});
 }

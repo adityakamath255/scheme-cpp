@@ -8,18 +8,6 @@
 #include <sstream>
 #include <unistd.h>
 
-static void run_source(std::string_view src, Ctx *ctx) {
-  for (;;) {
-    ReadEval r = read_eval(src, ctx);
-    auto *e = std::get_if<Evaluated>(&r);
-    if (!e) {
-      break;
-    }
-    std::cout << e->output;
-    src = e->rest;
-  }
-}
-
 static void repl(Ctx *ctx) {
   replxx::Replxx rx;
   rx.set_max_history_size(1024);
@@ -90,9 +78,11 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  auto to_stdout = [](std::string_view s) { std::cout << s; };
+
   Ctx ctx;
   install_builtins(&ctx);
-  run_all(preamble, &ctx);
+  run_all(preamble, &ctx, [](std::string_view) {});
 
   if (filename) {
     std::ifstream file(*filename);
@@ -104,7 +94,7 @@ int main(int argc, char *argv[]) {
     buf << file.rdbuf();
 
     try {
-      run_source(buf.str(), &ctx);
+      run_all(buf.str(), &ctx, to_stdout);
     }
     catch (const std::exception &e) {
       std::cerr << "error: " << e.what() << "\n";
@@ -116,7 +106,7 @@ int main(int argc, char *argv[]) {
     buf << std::cin.rdbuf();
 
     try {
-      run_source(buf.str(), &ctx);
+      run_all(buf.str(), &ctx, to_stdout);
     }
     catch (const std::exception &e) {
       std::cerr << "error: " << e.what() << "\n";
