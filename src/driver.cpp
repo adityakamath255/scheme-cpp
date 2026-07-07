@@ -12,11 +12,11 @@ ReadEval read_eval(std::string_view source, Ctx *ctx) {
   if (result->tokens.empty()) {
     return Exhausted{};
   }
-  Obj expr = parse(result->tokens, ctx);
-  Obj value = eval(expr, ctx->global_env, ctx);
   if (ctx->should_recycle()) {
     ctx->recycle();
   }
+  Obj expr = parse(result->tokens, ctx);
+  Obj value = eval(expr, ctx->global_env, ctx);
   return Evaluated{value, ctx->take_output(), result->rest};
 }
 

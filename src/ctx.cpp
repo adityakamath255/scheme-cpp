@@ -33,7 +33,7 @@ Symbol Ctx::intern(std::string_view name) {
 }
 
 bool Ctx::should_recycle() const {
-  return live.size() > gc_threshold;
+  return eval_depth == 0 && live.size() > gc_threshold;
 }
 
 bool Ctx::push_eval() {
