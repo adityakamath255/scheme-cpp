@@ -1,26 +1,32 @@
 #pragma once
-#include "types.hpp"
+
 #include "env.hpp"
+#include "types.hpp"
+
 #include <algorithm>
 #include <ranges>
 #include <string>
 #include <unordered_set>
+#include <utility>
 
-class Ctx {
+class Runtime {
   std::vector<HeapEntity *> live;
   std::unordered_set<std::string> interned;
   size_t gc_threshold;
-  size_t eval_depth;
-  std::string output;
+
+  bool should_recycle() const;
+  void recycle();
+
+  friend class Evaluator;
 
 public:
-  Ctx();
-  ~Ctx();
+  Runtime();
+  ~Runtime();
+
+  Runtime(const Runtime &) = delete;
+  Runtime &operator=(const Runtime &) = delete;
 
   Env *const global_env;
-
-  void print(std::string_view);
-  std::string take_output();
 
   Symbol intern(std::string_view);
 
@@ -30,19 +36,14 @@ public:
     live.push_back(obj);
     return obj;
   }
-
-  bool should_recycle() const;
-  void recycle();
-
-  bool push_eval();
-  void pop_eval();
 };
 
-// fold_left over the reversed range == fold_right, which libc++ (wasm) lacks
-template<std::ranges::bidirectional_range R>
-Obj list_from(R &&elems, Ctx *ctx, Obj tail = Null{}) {
+template<std::ranges::bidirectional_range R, typename Allocator>
+Obj list_from(R &&elems, Allocator *allocator, Obj tail = Null{}) {
   return std::ranges::fold_left(
     std::forward<R>(elems) | std::views::reverse, tail,
-    [ctx](Obj acc, Obj elem) -> Obj { return ctx->alloc<Cons>(elem, acc); }
+    [allocator](Obj acc, Obj elem) -> Obj {
+      return allocator->template alloc<Cons>(elem, acc);
+    }
   );
 }

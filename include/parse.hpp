@@ -2,4 +2,6 @@
 #include "types.hpp"
 #include "lex.hpp"
 
-Obj parse(const std::vector<Token> &, Ctx *);
+class Runtime;
+
+Obj parse(const std::vector<Token> &, Runtime *);

@@ -26,7 +26,15 @@ class Console {
   constructor(private readonly root: HTMLElement) {}
 
   clear() { this.root.replaceChildren(); }
-  print(text: string) { this.line(text, "out"); }
+  print(text: string) {
+    const last = this.root.lastElementChild;
+    if (last?.classList.contains("out")) {
+      last.append(text);
+      this.root.scrollTop = this.root.scrollHeight;
+    } else {
+      this.line(text, "out");
+    }
+  }
   error(text: string) { this.line(text, "err"); }
   result(text: string) { this.line(text, "res"); }
   hint(text: string) { this.line(text, "hint"); }

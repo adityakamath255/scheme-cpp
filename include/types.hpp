@@ -8,8 +8,10 @@
 #include <variant>
 #include <vector>
 
-template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
-template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+template <class... Ts> struct overloaded : Ts... {
+  using Ts::operator()...;
+};
+template <class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 struct BigInt;
 class Number;
@@ -26,25 +28,14 @@ struct Void {};
 
 class Obj;
 class Env;
-class Ctx;
+class Runtime;
+class Evaluator;
 struct HeapEntity;
 struct ListProfile;
 
-using Value = std::variant<
-  bool,
-  char,
-  Number,
-  Symbol,
-  String *,
-  Cons *,
-  Vector *,
-  Procedure *,
-  Builtin *,
-  Promise *,
-  Error *,
-  Null,
-  Void
->;
+using Value =
+    std::variant<bool, char, Number, Symbol, String *, Cons *, Vector *,
+                 Procedure *, Builtin *, Promise *, Error *, Null, Void>;
 
 enum class Type : size_t {
   Bool = 0,
@@ -67,9 +58,9 @@ class Number {
   explicit Number(std::variant<int64_t, BigInt *, double> rep);
 
 public:
-  static Number exact(int64_t v, Ctx *ctx);
+  static Number exact(int64_t v, Evaluator *evaluator);
   static Number inexact(double v);
-  static Number parse(std::string_view lexeme, Ctx *ctx);
+  static Number parse(std::string_view lexeme, Runtime *runtime);
 
   bool is_exact() const;
   bool is_integer() const;
@@ -78,19 +69,19 @@ public:
 
   double to_double() const;
 
-  Number add(Number o, Ctx *ctx) const;
-  Number sub(Number o, Ctx *ctx) const;
-  Number mul(Number o, Ctx *ctx) const;
-  Number div(Number o, Ctx *ctx) const;
-  Number neg(Ctx *ctx) const;
-  Number abs(Ctx *ctx) const;
-  Number sqrt(Ctx *ctx) const;
-  Number quotient(Number o, Ctx *ctx) const;
-  Number remainder(Number o, Ctx *ctx) const;
-  Number modulo(Number o, Ctx *ctx) const;
-  Number expt(Number power, Ctx *ctx) const;
+  Number add(Number o, Evaluator *evaluator) const;
+  Number sub(Number o, Evaluator *evaluator) const;
+  Number mul(Number o, Evaluator *evaluator) const;
+  Number div(Number o, Evaluator *evaluator) const;
+  Number neg(Evaluator *evaluator) const;
+  Number abs(Evaluator *evaluator) const;
+  Number sqrt(Evaluator *evaluator) const;
+  Number quotient(Number o, Evaluator *evaluator) const;
+  Number remainder(Number o, Evaluator *evaluator) const;
+  Number modulo(Number o, Evaluator *evaluator) const;
+  Number expt(Number power, Evaluator *evaluator) const;
   Number to_inexact() const;
-  Number to_exact(Ctx *ctx) const;
+  Number to_exact(Evaluator *evaluator) const;
 
   std::partial_ordering compare(Number o) const;
   bool eqv(Number o) const;
@@ -239,28 +230,32 @@ struct Vector : HeapEntity {
 };
 
 struct Builtin : HeapEntity {
-  using Fn = Obj(*)(const std::vector<Obj> &, Ctx *);
+  using Fn = Obj (*)(const std::vector<Obj> &, Evaluator *);
+  struct Apply {};
+  using Implementation = std::variant<Fn, Apply>;
 
-  Fn fn;
+  Implementation implementation;
 
-  Builtin(Fn fn);
+  Builtin(Implementation implementation);
 };
 
 struct Formals {
-  std::vector<Symbol> names;
-  bool variadic;
+  std::vector<Symbol> fixed;
+  std::optional<Symbol> rest;
 
   static Formals parse(Obj formals);
-  void bind(Env *env, const std::vector<Obj> &args, Ctx *ctx) const;
+  void bind(Env *env, const std::vector<Obj> &args, Evaluator *evaluator) const;
 };
+
+enum class ProcedureKind { Function, Macro };
 
 struct Procedure : HeapEntity {
   Formals formals;
   Obj body;
   Env *env;
-  bool macro;
+  ProcedureKind kind;
 
-  Procedure(Formals formals, Obj body, Env *env, bool macro);
+  Procedure(Formals formals, Obj body, Env *env, ProcedureKind kind);
 
   void trace(std::vector<HeapEntity *> *) const override;
 };
@@ -276,7 +271,7 @@ class Promise : public HeapEntity {
 public:
   Promise(Obj body, Env *env);
 
-  Obj force(Ctx *ctx);
+  Obj force(Evaluator *evaluator);
 
   void trace(std::vector<HeapEntity *> *) const override;
 };
@@ -292,20 +287,17 @@ struct Error : HeapEntity {
   void trace(std::vector<HeapEntity *> *) const override;
 };
 
-// guard catches exactly this type; any other exception unwinding
-// through eval is an interpreter bug, not a Scheme error.
 struct SchemeError : std::runtime_error {
   std::optional<Obj> payload;
 
   explicit SchemeError(const std::string &message);
   static SchemeError raised(Obj payload);
 
-  Obj as_condition(Ctx *ctx);
+  Obj as_condition(Evaluator *evaluator);
 };
 
-template<>
-struct std::hash<Symbol> {
+template <> struct std::hash<Symbol> {
   size_t operator()(const Symbol &s) const {
-    return std::hash<const void*>()(s.ptr);
+    return std::hash<const void *>()(s.ptr);
   }
 };

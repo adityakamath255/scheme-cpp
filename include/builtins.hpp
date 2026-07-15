@@ -1,6 +1,6 @@
 #pragma once
 #include "types.hpp"
 
-void install_builtins(Ctx *ctx);
+class Runtime;
 
-Obj builtin_apply(const std::vector<Obj> &args, Ctx *ctx);
+void install_builtins(Runtime *runtime);

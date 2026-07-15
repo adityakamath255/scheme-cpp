@@ -1,5 +1,6 @@
 #include "parse.hpp"
-#include "ctx.hpp"
+#include "runtime.hpp"
+#include <array>
 #include <cassert>
 #include <limits>
 
@@ -11,13 +12,23 @@ static std::string process_escapes(std::string_view raw) {
     if (raw[i] == '\\' && i + 1 < raw.size()) {
       i += 1;
       switch (raw[i]) {
-        case 'n': res += '\n'; break;
-        case 't': res += '\t'; break;
-        case 'r': res += '\r'; break;
-        case '\\': res += '\\'; break;
-        case '"': res += '"'; break;
-        default:
-          throw SchemeError("invalid escape sequence");
+      case 'n':
+        res += '\n';
+        break;
+      case 't':
+        res += '\t';
+        break;
+      case 'r':
+        res += '\r';
+        break;
+      case '\\':
+        res += '\\';
+        break;
+      case '"':
+        res += '"';
+        break;
+      default:
+        throw SchemeError("invalid escape sequence");
       }
     }
 
@@ -32,57 +43,40 @@ static std::string process_escapes(std::string_view raw) {
 class Parser {
   const std::vector<Token> &tokens;
   size_t index;
-  Ctx *ctx;
+  Runtime *runtime;
 
   bool match(Token::Type type) {
     if (index < tokens.size() && tokens[index].type == type) {
       index += 1;
       return true;
-    }
-    else {
+    } else {
       return false;
     }
   }
 
-  Obj parse_number(std::string_view lexeme) {
-    return Number::parse(lexeme, ctx);
-  }
-
   Obj parse_quoted(Symbol sym) {
-    Obj quoted = parse_expr();
-    return ctx->alloc<Cons>(
-      sym,
-      ctx->alloc<Cons>(
-        quoted,
-        Null{}
-      )
-    );
+    return list_from(std::array<Obj, 2>{sym, parse_expr()}, runtime);
   }
 
   Obj parse_list() {
-    if (match(Token::RPAREN)) {
-      return Null{};
-    }
-
-    Obj first = parse_expr();
-    Cons *head = ctx->alloc<Cons>(first, Null{});
-    Cons *tail = head;
+    std::vector<Obj> elements;
 
     while (!match(Token::RPAREN)) {
       if (match(Token::DOT)) {
-        tail->cdr = parse_expr();
+        if (elements.empty()) {
+          throw SchemeError("unexpected token");
+        }
+        Obj tail = parse_expr();
         if (!match(Token::RPAREN)) {
           throw SchemeError("expected ')' after dotted pair");
         }
-        return head;
+        return list_from(elements, runtime, tail);
       }
 
-      Cons *next = ctx->alloc<Cons>(parse_expr(), Null{});
-      tail->cdr = next;
-      tail = next;
+      elements.push_back(parse_expr());
     }
 
-    return head;
+    return list_from(elements, runtime);
   }
 
   Obj parse_expr() {
@@ -91,86 +85,79 @@ class Parser {
     index += 1;
 
     switch (tok.type) {
-      case Token::LPAREN:
-        return parse_list();
+    case Token::LPAREN:
+      return parse_list();
 
-      case Token::QUOTE:
-        return parse_quoted(ctx->intern("quote"));
+    case Token::QUOTE:
+      return parse_quoted(runtime->intern("quote"));
 
-      case Token::BACKTICK:
-        return parse_quoted(ctx->intern("quasiquote"));
+    case Token::BACKTICK:
+      return parse_quoted(runtime->intern("quasiquote"));
 
-      case Token::COMMA:
-        return parse_quoted(ctx->intern("unquote"));
+    case Token::COMMA:
+      return parse_quoted(runtime->intern("unquote"));
 
-      case Token::SPLICE_COMMA:
-        return parse_quoted(ctx->intern("unquote-splicing"));
+    case Token::SPLICE_COMMA:
+      return parse_quoted(runtime->intern("unquote-splicing"));
 
-      case Token::TRUE:
-        return true;
+    case Token::TRUE:
+      return true;
 
-      case Token::FALSE:
-        return false;
+    case Token::FALSE:
+      return false;
 
-      case Token::PLUS_INF:
-        return std::numeric_limits<double>::infinity();
+    case Token::PLUS_INF:
+      return std::numeric_limits<double>::infinity();
 
-      case Token::MINUS_INF:
-        return -std::numeric_limits<double>::infinity();
+    case Token::MINUS_INF:
+      return -std::numeric_limits<double>::infinity();
 
-      case Token::NAN_VAL:
-        return std::numeric_limits<double>::quiet_NaN();
+    case Token::NAN_VAL:
+      return std::numeric_limits<double>::quiet_NaN();
 
-      case Token::NUMBER:
-        return parse_number(tok.lexeme);
+    case Token::NUMBER:
+      return Number::parse(tok.lexeme, runtime);
 
-      case Token::STRING: {
-        auto str = process_escapes(tok.lexeme);
-        return ctx->alloc<String>(std::move(str));
+    case Token::STRING: {
+      auto str = process_escapes(tok.lexeme);
+      return runtime->alloc<String>(std::move(str));
+    }
+
+    case Token::SYMBOL:
+      return runtime->intern(tok.lexeme);
+
+    case Token::VEC_BEGIN: {
+      std::vector<Obj> elements;
+      while (!match(Token::RPAREN)) {
+        auto obj = parse_expr();
+        elements.push_back(obj);
       }
+      return runtime->alloc<Vector>(std::move(elements));
+    }
 
-      case Token::SYMBOL:
-        return ctx->intern(tok.lexeme);
-
-      case Token::VEC_BEGIN: {
-        std::vector<Obj> elements;
-        while (!match(Token::RPAREN)) {
-          auto obj = parse_expr();
-          elements.push_back(obj);
-        }
-        return ctx->alloc<Vector>(std::move(elements));
+    case Token::CHAR: {
+      std::string_view name = tok.lexeme.substr(2);
+      if (name == "space") {
+        return ' ';
+      } else if (name == "newline") {
+        return '\n';
+      } else if (name == "tab") {
+        return '\t';
+      } else if (name == "return") {
+        return '\r';
+      } else {
+        return name[0];
       }
+    }
 
-      case Token::CHAR: {
-        std::string_view name = tok.lexeme.substr(2);
-        if (name == "space") {
-          return ' ';
-        }
-        else if (name == "newline") {
-          return '\n';
-        }
-        else if (name == "tab") {
-          return '\t';
-        }
-        else if (name == "return") {
-          return '\r';
-        }
-        else {
-          return name[0];
-        }
-      }
-
-      default:
-        throw SchemeError("unexpected token");
+    default:
+      throw SchemeError("unexpected token");
     }
   }
 
 public:
-  Parser(const std::vector<Token> &tokens, Ctx *ctx):
-    tokens {tokens},
-    index {0},
-    ctx {ctx}
-  {}
+  Parser(const std::vector<Token> &tokens, Runtime *runtime)
+      : tokens{tokens}, index{0}, runtime{runtime} {}
 
   Obj parse() {
     assert(!tokens.empty());
@@ -178,6 +165,6 @@ public:
   }
 };
 
-Obj parse(const std::vector<Token> &tokens, Ctx *ctx) {
-  return Parser(tokens, ctx).parse();
+Obj parse(const std::vector<Token> &tokens, Runtime *runtime) {
+  return Parser(tokens, runtime).parse();
 }

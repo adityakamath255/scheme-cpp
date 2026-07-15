@@ -1,9 +1,8 @@
 #include "builtins.hpp"
-#include "ctx.hpp"
-#include "driver.hpp"
 #include "eval.hpp"
 #include "lex.hpp"
 #include "parse.hpp"
+#include "runtime.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -16,30 +15,16 @@
 #include <sstream>
 #include <utility>
 
-// --- helpers ---
-
-static void check_arity(
-  const std::vector<Obj> &args,
-  std::string_view name,
-  size_t min,
-  size_t max
-) {
+static void check_arity(const std::vector<Obj> &args, std::string_view name,
+                        size_t min, size_t max) {
   check_arity(args.size(), name, min, max);
 }
 
-static void check_type(
-  Obj obj,
-  bool (Obj::*pred)() const,
-  std::string_view type_name,
-  std::string_view context
-) {
+static void check_type(Obj obj, bool (Obj::*pred)() const,
+                       std::string_view type_name, std::string_view context) {
   if (!(obj.*pred)()) {
-    throw SchemeError(
-      std::format(
-        "{}: expected {}, got {}",
-        context, type_name, obj.stringify_type()
-      )
-    );
+    throw SchemeError(std::format("{}: expected {}, got {}", context, type_name,
+                                  obj.stringify_type()));
   }
 }
 
@@ -50,12 +35,14 @@ static Number as_num(Obj obj, std::string_view context) {
 
 static size_t as_index(Obj obj, std::string_view context) {
   Number n = as_num(obj, context);
-  if (!n.is_integer() || n.to_double() < 0) {
+  double d = n.to_double();
+  bool in_range =
+      std::isfinite(d) && d >= 0 && d <= static_cast<double>(SIZE_MAX);
+  if (!n.is_integer() || !in_range) {
     throw SchemeError(
-      std::format("{}: expected non-negative integer", context)
-    );
+        std::format("{}: expected non-negative integer", context));
   }
-  return static_cast<size_t>(n.to_double());
+  return static_cast<size_t>(d);
 }
 
 static String *as_string(Obj obj, std::string_view context) {
@@ -78,373 +65,367 @@ static char as_char(Obj obj, std::string_view context) {
   return obj.as_char();
 }
 
-template<typename Ok>
-static Obj numeric_compare(
-  const std::vector<Obj> &args,
-  std::string_view name,
-  Ok ok
-) {
+static Obj
+numeric_compare(const std::vector<Obj> &args, std::string_view name,
+                const std::function<bool(std::partial_ordering)> &ok) {
   check_arity(args, name, 1, SIZE_MAX);
-  auto nums = args
-    | std::views::transform([&](Obj a) { return as_num(a, name); })
-    | std::ranges::to<std::vector>();
-  // adjacent_find, not views::pairwise: libc++ (wasm) has no zip family
-  return std::ranges::adjacent_find(
-    nums,
-    [&](Number a, Number b) { return !ok(a.compare(b)); }
-  ) == nums.end();
+  auto nums = args |
+              std::views::transform([&](Obj a) { return as_num(a, name); }) |
+              std::ranges::to<std::vector>();
+  return std::ranges::adjacent_find(nums, [&](Number a, Number b) {
+           return !ok(a.compare(b));
+         }) == nums.end();
 }
 
-// --- arithmetic ---
-
-static Obj builtin_add(const std::vector<Obj> &args, Ctx *ctx) {
-  return std::ranges::fold_left(
-    args, Number::exact(0, ctx),
-    [ctx](Number acc, Obj x) { return acc.add(as_num(x, "+"), ctx); }
-  );
+static Obj builtin_add(const std::vector<Obj> &args, Evaluator *evaluator) {
+  return std::ranges::fold_left(args, Number::exact(0, evaluator),
+                                [evaluator](Number acc, Obj x) {
+                                  return acc.add(as_num(x, "+"), evaluator);
+                                });
 }
 
-static Obj builtin_sub(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_sub(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "-", 1, SIZE_MAX);
   Number result = as_num(args[0], "-");
   if (args.size() == 1) {
-    return result.neg(ctx);
-  }
-  else {
+    return result.neg(evaluator);
+  } else {
     for (size_t i = 1; i < args.size(); i += 1) {
-      result = result.sub(as_num(args[i], "-"), ctx);
+      result = result.sub(as_num(args[i], "-"), evaluator);
     }
     return result;
   }
 }
 
-static Obj builtin_mul(const std::vector<Obj> &args, Ctx *ctx) {
-  return std::ranges::fold_left(
-    args, Number::exact(1, ctx),
-    [ctx](Number acc, Obj x) { return acc.mul(as_num(x, "*"), ctx); }
-  );
+static Obj builtin_mul(const std::vector<Obj> &args, Evaluator *evaluator) {
+  return std::ranges::fold_left(args, Number::exact(1, evaluator),
+                                [evaluator](Number acc, Obj x) {
+                                  return acc.mul(as_num(x, "*"), evaluator);
+                                });
 }
 
-static Obj builtin_div(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_div(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "/", 1, SIZE_MAX);
   Number result = as_num(args[0], "/");
   if (args.size() == 1) {
-    return Number::exact(1, ctx).div(result, ctx);
-  }
-  else {
+    return Number::exact(1, evaluator).div(result, evaluator);
+  } else {
     for (size_t i = 1; i < args.size(); i += 1) {
-      result = result.div(as_num(args[i], "/"), ctx);
+      result = result.div(as_num(args[i], "/"), evaluator);
     }
     return result;
   }
 }
 
-// --- comparison ---
-
-static Obj builtin_lt(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_lt(const std::vector<Obj> &args, Evaluator *) {
   return numeric_compare(args, "<", [](std::partial_ordering o) {
     return o == std::partial_ordering::less;
   });
 }
 
-static Obj builtin_gt(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_gt(const std::vector<Obj> &args, Evaluator *) {
   return numeric_compare(args, ">", [](std::partial_ordering o) {
     return o == std::partial_ordering::greater;
   });
 }
 
-static Obj builtin_num_eq(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_num_eq(const std::vector<Obj> &args, Evaluator *) {
   return numeric_compare(args, "=", [](std::partial_ordering o) {
     return o == std::partial_ordering::equivalent;
   });
 }
 
-static Obj builtin_le(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_le(const std::vector<Obj> &args, Evaluator *) {
   return numeric_compare(args, "<=", [](std::partial_ordering o) {
-    return o == std::partial_ordering::less || o == std::partial_ordering::equivalent;
+    return o == std::partial_ordering::less ||
+           o == std::partial_ordering::equivalent;
   });
 }
 
-static Obj builtin_ge(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_ge(const std::vector<Obj> &args, Evaluator *) {
   return numeric_compare(args, ">=", [](std::partial_ordering o) {
-    return o == std::partial_ordering::greater || o == std::partial_ordering::equivalent;
+    return o == std::partial_ordering::greater ||
+           o == std::partial_ordering::equivalent;
   });
 }
 
-// --- math ---
-
-static Obj builtin_abs(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_abs(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "abs", 1, 1);
-  return as_num(args[0], "abs").abs(ctx);
+  return as_num(args[0], "abs").abs(evaluator);
 }
 
-static Obj builtin_sqrt(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_sqrt(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "sqrt", 1, 1);
-  return as_num(args[0], "sqrt").sqrt(ctx);
+  return as_num(args[0], "sqrt").sqrt(evaluator);
 }
 
-static Obj builtin_sin(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_sin(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "sin", 1, 1);
   return std::sin(as_num(args[0], "sin").to_double());
 }
 
-static Obj builtin_cos(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_cos(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "cos", 1, 1);
   return std::cos(as_num(args[0], "cos").to_double());
 }
 
-static Obj builtin_log(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_log(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "log", 1, 1);
   return std::log(as_num(args[0], "log").to_double());
 }
 
-static Obj builtin_expt(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_expt(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "expt", 2, 2);
-  return as_num(args[0], "expt").expt(as_num(args[1], "expt"), ctx);
+  return as_num(args[0], "expt").expt(as_num(args[1], "expt"), evaluator);
 }
 
-static Obj builtin_ceil(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_ceil(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "ceiling", 1, 1);
   Number n = as_num(args[0], "ceiling");
   return n.is_exact() ? n : Number::inexact(std::ceil(n.to_double()));
 }
 
-static Obj builtin_floor(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_floor(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "floor", 1, 1);
   Number n = as_num(args[0], "floor");
   return n.is_exact() ? n : Number::inexact(std::floor(n.to_double()));
 }
 
-static Obj builtin_round(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_round(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "round", 1, 1);
   Number n = as_num(args[0], "round");
   return n.is_exact() ? n : Number::inexact(std::round(n.to_double()));
 }
 
-static Obj minmax(
-  const std::vector<Obj> &args,
-  std::string_view name,
-  std::partial_ordering want
-) {
+static Obj minmax(const std::vector<Obj> &args, std::string_view name,
+                  std::partial_ordering want) {
   check_arity(args, name, 1, SIZE_MAX);
-  auto nums = args
-    | std::views::transform([&](Obj a) { return as_num(a, name); })
-    | std::ranges::to<std::vector>();
-  bool inexact = std::ranges::any_of(nums, [](Number n) { return !n.is_exact(); });
-  // seeded fold_left: libc++ (wasm) lacks fold_left_first
+  auto nums = args |
+              std::views::transform([&](Obj a) { return as_num(a, name); }) |
+              std::ranges::to<std::vector>();
+  bool inexact =
+      std::ranges::any_of(nums, [](Number n) { return !n.is_exact(); });
   Number best = std::ranges::fold_left(
-    nums | std::views::drop(1), nums[0],
-    [want](Number a, Number b) { return b.compare(a) == want ? b : a; }
-  );
+      nums | std::views::drop(1), nums[0],
+      [want](Number a, Number b) { return b.compare(a) == want ? b : a; });
   return inexact ? best.to_inexact() : best;
 }
 
-static Obj builtin_max(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_max(const std::vector<Obj> &args, Evaluator *) {
   return minmax(args, "max", std::partial_ordering::greater);
 }
 
-static Obj builtin_min(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_min(const std::vector<Obj> &args, Evaluator *) {
   return minmax(args, "min", std::partial_ordering::less);
 }
 
-static Obj builtin_quotient(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_quotient(const std::vector<Obj> &args,
+                            Evaluator *evaluator) {
   check_arity(args, "quotient", 2, 2);
-  return as_num(args[0], "quotient").quotient(as_num(args[1], "quotient"), ctx);
+  return as_num(args[0], "quotient")
+      .quotient(as_num(args[1], "quotient"), evaluator);
 }
 
-static Obj builtin_remainder(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_remainder(const std::vector<Obj> &args,
+                             Evaluator *evaluator) {
   check_arity(args, "remainder", 2, 2);
-  return as_num(args[0], "remainder").remainder(as_num(args[1], "remainder"), ctx);
+  return as_num(args[0], "remainder")
+      .remainder(as_num(args[1], "remainder"), evaluator);
 }
 
-static Obj builtin_modulo(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_modulo(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "modulo", 2, 2);
-  return as_num(args[0], "modulo").modulo(as_num(args[1], "modulo"), ctx);
+  return as_num(args[0], "modulo").modulo(as_num(args[1], "modulo"), evaluator);
 }
 
-static Obj builtin_even(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_even(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "even?", 1, 1);
   return as_num(args[0], "even?").is_even();
 }
 
-static Obj builtin_odd(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_odd(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "odd?", 1, 1);
   return !as_num(args[0], "odd?").is_even();
 }
 
-static Obj builtin_is_zero(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_zero(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "zero?", 1, 1);
   return as_num(args[0], "zero?").is_zero();
 }
 
-static Obj builtin_is_positive(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_is_positive(const std::vector<Obj> &args,
+                               Evaluator *evaluator) {
   check_arity(args, "positive?", 1, 1);
-  return as_num(args[0], "positive?").compare(Number::exact(0, ctx))
-    == std::partial_ordering::greater;
+  return as_num(args[0], "positive?").compare(Number::exact(0, evaluator)) ==
+         std::partial_ordering::greater;
 }
 
-static Obj builtin_is_negative(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_is_negative(const std::vector<Obj> &args,
+                               Evaluator *evaluator) {
   check_arity(args, "negative?", 1, 1);
-  return as_num(args[0], "negative?").compare(Number::exact(0, ctx))
-    == std::partial_ordering::less;
+  return as_num(args[0], "negative?").compare(Number::exact(0, evaluator)) ==
+         std::partial_ordering::less;
 }
 
-static Obj builtin_is_exact(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_exact(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "exact?", 1, 1);
   return as_num(args[0], "exact?").is_exact();
 }
 
-static Obj builtin_is_inexact(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_inexact(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "inexact?", 1, 1);
   return !as_num(args[0], "inexact?").is_exact();
 }
 
-static Obj builtin_exact(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_exact(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "exact", 1, 1);
-  return as_num(args[0], "exact").to_exact(ctx);
+  return as_num(args[0], "exact").to_exact(evaluator);
 }
 
-static Obj builtin_inexact(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_inexact(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "inexact", 1, 1);
   return as_num(args[0], "inexact").to_inexact();
 }
 
-// --- predicates ---
-
-static Obj builtin_is_null(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_null(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "null?", 1, 1);
   return args[0].is_null();
 }
 
-static Obj builtin_is_boolean(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_boolean(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "boolean?", 1, 1);
   return args[0].is_bool();
 }
 
-static Obj builtin_is_number(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_number(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "number?", 1, 1);
   return args[0].is_number();
 }
 
-static Obj builtin_is_integer(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_integer(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "integer?", 1, 1);
   return args[0].is_number() && args[0].as_number().is_integer();
 }
 
-static Obj builtin_is_pair(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_pair(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "pair?", 1, 1);
   return args[0].is_cons();
 }
 
-static Obj builtin_is_symbol(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_symbol(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "symbol?", 1, 1);
   return args[0].is_symbol();
 }
 
-static Obj builtin_is_string(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_string(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "string?", 1, 1);
   return args[0].is_string();
 }
 
-static Obj builtin_is_procedure(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_procedure(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "procedure?", 1, 1);
   return args[0].is_procedure() || args[0].is_builtin();
 }
 
-static Obj builtin_is_list(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_list(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "list?", 1, 1);
   return args[0].is_list();
 }
 
-static Obj builtin_is_void(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_void(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "void?", 1, 1);
   return args[0].is_void();
 }
 
-static Obj builtin_is_promise(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_promise(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "promise?", 1, 1);
   return args[0].is_promise();
 }
 
-static Obj builtin_not(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_not(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "not", 1, 1);
   return args[0].is_false();
 }
 
-static Obj builtin_void(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_void(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "void", 0, 0);
   return Void{};
 }
 
-// --- equality ---
-
-static Obj builtin_eq(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_eq(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "eq?", 2, 2);
   Obj a = args[0], b = args[1];
   if (!a.same_type(b)) {
     return false;
-  }
-  else {
+  } else {
     switch (a.get_type()) {
-      case Type::Bool: return a.as_bool() == b.as_bool();
-      case Type::Number: return a.as_number().eqv(b.as_number());
-      case Type::Char: return a.as_char() == b.as_char();
-      case Type::Symbol: return a.as_symbol() == b.as_symbol();
-      case Type::String: return a.as_string() == b.as_string();
-      case Type::Cons: return a.as_cons() == b.as_cons();
-      case Type::Vector: return a.as_vector() == b.as_vector();
-      case Type::Procedure: return a.as_procedure() == b.as_procedure();
-      case Type::Builtin: return a.as_builtin() == b.as_builtin();
-      case Type::Promise: return a.as_promise() == b.as_promise();
-      case Type::Error: return a.as_error() == b.as_error();
-      case Type::Null:
-      case Type::Void: return true;
+    case Type::Bool:
+      return a.as_bool() == b.as_bool();
+    case Type::Number:
+      return a.as_number().eqv(b.as_number());
+    case Type::Char:
+      return a.as_char() == b.as_char();
+    case Type::Symbol:
+      return a.as_symbol() == b.as_symbol();
+    case Type::String:
+      return a.as_string() == b.as_string();
+    case Type::Cons:
+      return a.as_cons() == b.as_cons();
+    case Type::Vector:
+      return a.as_vector() == b.as_vector();
+    case Type::Procedure:
+      return a.as_procedure() == b.as_procedure();
+    case Type::Builtin:
+      return a.as_builtin() == b.as_builtin();
+    case Type::Promise:
+      return a.as_promise() == b.as_promise();
+    case Type::Error:
+      return a.as_error() == b.as_error();
+    case Type::Null:
+    case Type::Void:
+      return true;
     }
   }
   std::unreachable();
 }
 
-static Obj builtin_equal(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_equal(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "equal?", 2, 2);
   return args[0].equals(args[1]);
 }
 
-// --- data ---
-
-static Obj builtin_car(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_car(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "car", 1, 1);
   return as_cons(args[0], "car")->car;
 }
 
-static Obj builtin_cdr(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_cdr(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "cdr", 1, 1);
   return as_cons(args[0], "cdr")->cdr;
 }
 
-static Obj builtin_cons(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_cons(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "cons", 2, 2);
-  return ctx->alloc<Cons>(args[0], args[1]);
+  return evaluator->alloc<Cons>(args[0], args[1]);
 }
 
-static Obj builtin_list(const std::vector<Obj> &args, Ctx *ctx) {
-  return list_from(args, ctx);
+static Obj builtin_list(const std::vector<Obj> &args, Evaluator *evaluator) {
+  return list_from(args, evaluator);
 }
 
-static Obj builtin_length(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_length(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "length", 1, 1);
   if (!args[0].is_null() && !args[0].is_cons()) {
-    throw SchemeError(
-      "length: expected list, got " + args[0].stringify_type()
-    );
+    throw SchemeError("length: expected list, got " + args[0].stringify_type());
   }
   auto profile = args[0].get_list_profile();
   if (!profile.is_proper) {
     throw SchemeError("length: expected proper list");
   }
-  return Number::exact(static_cast<int64_t>(profile.size), ctx);
+  return Number::exact(static_cast<int64_t>(profile.size), evaluator);
 }
 
-static Obj builtin_list_ref(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_list_ref(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "list-ref", 2, 2);
   check_type(args[0], &Obj::is_cons, "pair", "list-ref");
   size_t index = as_index(args[1], "list-ref");
@@ -461,28 +442,27 @@ static Obj builtin_list_ref(const std::vector<Obj> &args, Ctx *) {
   return curr.car();
 }
 
-static Obj builtin_set_car(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_set_car(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "set-car!", 2, 2);
   as_cons(args[0], "set-car!")->car = args[1];
   return Void{};
 }
 
-static Obj builtin_set_cdr(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_set_cdr(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "set-cdr!", 2, 2);
   as_cons(args[0], "set-cdr!")->cdr = args[1];
   return Void{};
 }
 
-// --- strings ---
-
-static Obj builtin_string_length(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_string_length(const std::vector<Obj> &args,
+                                 Evaluator *evaluator) {
   check_arity(args, "string-length", 1, 1);
   return Number::exact(
-    static_cast<int64_t>(as_string(args[0], "string-length")->data.size()), ctx
-  );
+      static_cast<int64_t>(as_string(args[0], "string-length")->data.size()),
+      evaluator);
 }
 
-static Obj builtin_string_ref(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_string_ref(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "string-ref", 2, 2);
   const std::string &s = as_string(args[0], "string-ref")->data;
   size_t index = as_index(args[1], "string-ref");
@@ -492,7 +472,8 @@ static Obj builtin_string_ref(const std::vector<Obj> &args, Ctx *) {
   return s[index];
 }
 
-static Obj builtin_substring(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_substring(const std::vector<Obj> &args,
+                             Evaluator *evaluator) {
   check_arity(args, "substring", 2, 3);
   const std::string &s = as_string(args[0], "substring")->data;
   size_t start = as_index(args[1], "substring");
@@ -503,117 +484,115 @@ static Obj builtin_substring(const std::vector<Obj> &args, Ctx *ctx) {
   if (start > end || end > s.size()) {
     throw SchemeError("substring: index out of range");
   }
-  return ctx->alloc<String>(s.substr(start, end - start));
+  return evaluator->alloc<String>(s.substr(start, end - start));
 }
 
-static Obj builtin_string_append(const std::vector<Obj> &args, Ctx *ctx) {
-  return ctx->alloc<String>(std::ranges::to<std::string>(
-    args
-    | std::views::transform(
-        [](Obj a) -> const std::string & { return as_string(a, "string-append")->data; }
-      )
-    | std::views::join
-  ));
+static Obj builtin_string_append(const std::vector<Obj> &args,
+                                 Evaluator *evaluator) {
+  return evaluator->alloc<String>(std::ranges::to<std::string>(
+      args | std::views::transform([](Obj a) -> const std::string & {
+        return as_string(a, "string-append")->data;
+      }) |
+      std::views::join));
 }
 
-static Obj builtin_string_eq(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_string_eq(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "string=?", 2, 2);
-  return as_string(args[0], "string=?")->data
-    == as_string(args[1], "string=?")->data;
+  return as_string(args[0], "string=?")->data ==
+         as_string(args[1], "string=?")->data;
 }
 
-// --- chars ---
-
-static Obj builtin_is_char(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_char(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "char?", 1, 1);
   return args[0].is_char();
 }
 
-static Obj builtin_char_eq(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_char_eq(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "char=?", 2, 2);
   return as_char(args[0], "char=?") == as_char(args[1], "char=?");
 }
 
-static Obj builtin_char_to_integer(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_char_to_integer(const std::vector<Obj> &args,
+                                   Evaluator *evaluator) {
   check_arity(args, "char->integer", 1, 1);
-  return Number::exact(
-    static_cast<int64_t>(
-      static_cast<unsigned char>(as_char(args[0], "char->integer"))
-    ), ctx
-  );
+  return Number::exact(static_cast<int64_t>(static_cast<unsigned char>(
+                           as_char(args[0], "char->integer"))),
+                       evaluator);
 }
 
-static Obj builtin_integer_to_char(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_integer_to_char(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "integer->char", 1, 1);
   return static_cast<char>(as_index(args[0], "integer->char"));
 }
 
-static Obj builtin_string_to_list(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_string_to_list(const std::vector<Obj> &args,
+                                  Evaluator *evaluator) {
   check_arity(args, "string->list", 1, 1);
-  return list_from(as_string(args[0], "string->list")->data, ctx);
+  return list_from(as_string(args[0], "string->list")->data, evaluator);
 }
 
-static Obj builtin_list_to_string(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_list_to_string(const std::vector<Obj> &args,
+                                  Evaluator *evaluator) {
   check_arity(args, "list->string", 1, 1);
   ListView list{args[0]};
   if (!list.tail().is_null()) {
     throw SchemeError("list->string: expected proper list");
   }
-  return ctx->alloc<String>(std::ranges::to<std::string>(
-    list | std::views::transform([](Obj c) { return as_char(c, "list->string"); })
-  ));
+  return evaluator->alloc<String>(std::ranges::to<std::string>(
+      list |
+      std::views::transform([](Obj c) { return as_char(c, "list->string"); })));
 }
 
-// --- conversion ---
-
-static Obj builtin_number_to_string(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_number_to_string(const std::vector<Obj> &args,
+                                    Evaluator *evaluator) {
   check_arity(args, "number->string", 1, 1);
-  return ctx->alloc<String>(as_num(args[0], "number->string").to_string());
+  return evaluator->alloc<String>(
+      as_num(args[0], "number->string").to_string());
 }
 
-static Obj builtin_string_to_number(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_string_to_number(const std::vector<Obj> &args,
+                                    Evaluator *evaluator) {
   check_arity(args, "string->number", 1, 1);
   const std::string &s = as_string(args[0], "string->number")->data;
   try {
-    return Number::parse(s, ctx);
-  }
-  catch (const SchemeError &) {
+    return Number::parse(s, &evaluator->runtime());
+  } catch (const SchemeError &) {
     return false;
   }
 }
 
-static Obj builtin_symbol_to_string(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_symbol_to_string(const std::vector<Obj> &args,
+                                    Evaluator *evaluator) {
   check_arity(args, "symbol->string", 1, 1);
   check_type(args[0], &Obj::is_symbol, "symbol", "symbol->string");
-  return ctx->alloc<String>(args[0].as_symbol().get_name());
+  return evaluator->alloc<String>(args[0].as_symbol().get_name());
 }
 
-static Obj builtin_string_to_symbol(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_string_to_symbol(const std::vector<Obj> &args,
+                                    Evaluator *evaluator) {
   check_arity(args, "string->symbol", 1, 1);
-  return ctx->intern(as_string(args[0], "string->symbol")->data);
+  return evaluator->intern(as_string(args[0], "string->symbol")->data);
 }
 
-// --- i/o ---
-
-static Obj builtin_display(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_display(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "display", 1, 1);
-  ctx->print(args[0].to_display());
+  evaluator->output(args[0].to_display());
   return Void{};
 }
 
-static Obj builtin_write(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_write(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "write", 1, 1);
-  ctx->print(args[0].to_write());
+  evaluator->output(args[0].to_write());
   return Void{};
 }
 
-static Obj builtin_newline(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_newline(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "newline", 0, 0);
-  ctx->print("\n");
+  evaluator->output("\n");
   return Void{};
 }
 
-static Obj builtin_read(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_read(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "read", 0, 0);
   std::string input;
   while (true) {
@@ -628,30 +607,29 @@ static Obj builtin_read(const std::vector<Obj> &args, Ctx *ctx) {
 
     auto result = lex(input);
     if (result && !result->tokens.empty()) {
-      return parse(result->tokens, ctx);
+      return parse(result->tokens, &evaluator->runtime());
     }
   }
 }
 
-// --- vectors ---
-
-static Obj builtin_is_vector(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_vector(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "vector?", 1, 1);
   return args[0].is_vector();
 }
 
-static Obj builtin_vector(const std::vector<Obj> &args, Ctx *ctx) {
-  return ctx->alloc<Vector>(args);
+static Obj builtin_vector(const std::vector<Obj> &args, Evaluator *evaluator) {
+  return evaluator->alloc<Vector>(args);
 }
 
-static Obj builtin_make_vector(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_make_vector(const std::vector<Obj> &args,
+                               Evaluator *evaluator) {
   check_arity(args, "make-vector", 1, 2);
   size_t n = as_index(args[0], "make-vector");
-  Obj fill = args.size() > 1 ? args[1] : Obj(Number::exact(0, ctx));
-  return ctx->alloc<Vector>(std::vector<Obj>(n, fill));
+  Obj fill = args.size() > 1 ? args[1] : Obj(Number::exact(0, evaluator));
+  return evaluator->alloc<Vector>(std::vector<Obj>(n, fill));
 }
 
-static Obj builtin_vector_ref(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_vector_ref(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "vector-ref", 2, 2);
   Vector *v = as_vector(args[0], "vector-ref");
   size_t i = as_index(args[1], "vector-ref");
@@ -661,7 +639,7 @@ static Obj builtin_vector_ref(const std::vector<Obj> &args, Ctx *) {
   return v->data[i];
 }
 
-static Obj builtin_vector_set(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_vector_set(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "vector-set!", 3, 3);
   Vector *v = as_vector(args[0], "vector-set!");
   size_t i = as_index(args[1], "vector-set!");
@@ -672,78 +650,75 @@ static Obj builtin_vector_set(const std::vector<Obj> &args, Ctx *) {
   return Void{};
 }
 
-static Obj builtin_vector_length(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_vector_length(const std::vector<Obj> &args,
+                                 Evaluator *evaluator) {
   check_arity(args, "vector-length", 1, 1);
   return Number::exact(
-    static_cast<int64_t>(as_vector(args[0], "vector-length")->data.size()), ctx
-  );
+      static_cast<int64_t>(as_vector(args[0], "vector-length")->data.size()),
+      evaluator);
 }
 
-static Obj builtin_vector_to_list(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_vector_to_list(const std::vector<Obj> &args,
+                                  Evaluator *evaluator) {
   check_arity(args, "vector->list", 1, 1);
-  return list_from(as_vector(args[0], "vector->list")->data, ctx);
+  return list_from(as_vector(args[0], "vector->list")->data, evaluator);
 }
 
-static Obj builtin_list_to_vector(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_list_to_vector(const std::vector<Obj> &args,
+                                  Evaluator *evaluator) {
   check_arity(args, "list->vector", 1, 1);
   ListView list{args[0]};
   if (!list.tail().is_null()) {
     throw SchemeError("list->vector: expected proper list");
   }
-  return ctx->alloc<Vector>(std::ranges::to<std::vector>(list));
+  return evaluator->alloc<Vector>(std::ranges::to<std::vector>(list));
 }
 
-// --- promises ---
-
-static Obj builtin_force(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_force(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "force", 1, 1);
   if (!args[0].is_promise()) {
     return args[0];
   }
-  return args[0].as_promise()->force(ctx);
+  return args[0].as_promise()->force(evaluator);
 }
 
-// --- errors ---
-
-static Obj builtin_error(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_error(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "error", 1, SIZE_MAX);
-  Error *err = ctx->alloc<Error>(
-    args[0].to_display(),
-    list_from(args | std::views::drop(1), ctx)
-  );
+  Error *err = evaluator->alloc<Error>(
+      args[0].to_display(), list_from(args | std::views::drop(1), evaluator));
   throw SchemeError::raised(err);
 }
 
-static Obj builtin_raise(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_raise(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "raise", 1, 1);
   throw SchemeError::raised(args[0]);
 }
 
-static Obj builtin_is_error_object(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_is_error_object(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "error-object?", 1, 1);
   return args[0].is_error();
 }
 
-static Obj builtin_error_object_message(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_error_object_message(const std::vector<Obj> &args,
+                                        Evaluator *evaluator) {
   check_arity(args, "error-object-message", 1, 1);
   check_type(args[0], &Obj::is_error, "error object", "error-object-message");
-  return ctx->alloc<String>(args[0].as_error()->message);
+  return evaluator->alloc<String>(args[0].as_error()->message);
 }
 
-static Obj builtin_error_object_irritants(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_error_object_irritants(const std::vector<Obj> &args,
+                                          Evaluator *) {
   check_arity(args, "error-object-irritants", 1, 1);
   check_type(args[0], &Obj::is_error, "error object", "error-object-irritants");
   return args[0].as_error()->irritants;
 }
 
-// --- misc ---
-
-static Obj builtin_eval(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_eval(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "eval", 1, 1);
-  return eval(args[0], ctx->global_env, ctx);
+  return evaluator->eval(args[0], evaluator->global_env());
 }
 
-static Obj builtin_load(const std::vector<Obj> &args, Ctx *ctx) {
+static Obj builtin_load(const std::vector<Obj> &args, Evaluator *evaluator) {
   check_arity(args, "load", 1, 1);
   const std::string &path = as_string(args[0], "load")->data;
 
@@ -755,17 +730,17 @@ static Obj builtin_load(const std::vector<Obj> &args, Ctx *ctx) {
   buf << file.rdbuf();
   std::string source = buf.str();
 
-  run_all(source, ctx, [ctx](std::string_view s) { ctx->print(s); });
+  evaluator->execute(source, ResultMode::Suppress);
 
   return Obj(Void{});
 }
 
-static Obj builtin_file_exists(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_file_exists(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "file-exists?", 1, 1);
   return Obj(std::ifstream(as_string(args[0], "file-exists?")->data).good());
 }
 
-static Obj builtin_exit(const std::vector<Obj> &args, Ctx *) {
+static Obj builtin_exit(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "exit", 0, 1);
   int code = 0;
   if (!args.empty()) {
@@ -774,31 +749,10 @@ static Obj builtin_exit(const std::vector<Obj> &args, Ctx *) {
   std::exit(code);
 }
 
-Obj builtin_apply(const std::vector<Obj> &args, Ctx *ctx) {
-  auto [proc, call_args] = splice_apply(args);
-
-  if (proc.is_builtin()) {
-    return proc.as_builtin()->fn(call_args, ctx);
-  }
-
-  if (proc.is_procedure()) {
-    Procedure *p = proc.as_procedure();
-    Env *call_env = ctx->alloc<LocalEnv>(p->env);
-    p->formals.bind(call_env, call_args, ctx);
-    return eval(p->body, call_env, ctx);
-  }
-
-  throw SchemeError(
-    "apply: expected procedure, got " + proc.stringify_type()
-  );
-}
-
-// --- public ---
-
-void install_builtins(Ctx *ctx) {
-  Env *env = ctx->global_env;
+void install_builtins(Runtime *runtime) {
+  Env *env = runtime->global_env;
   auto install = [&](std::string_view name, Builtin::Fn fn) {
-    env->define(ctx->intern(name), ctx->alloc<Builtin>(fn));
+    env->define(runtime->intern(name), runtime->alloc<Builtin>(fn));
   };
 
   install("+", builtin_add);
@@ -905,7 +859,8 @@ void install_builtins(Ctx *ctx) {
   install("error-object-message", builtin_error_object_message);
   install("error-object-irritants", builtin_error_object_irritants);
   install("eval", builtin_eval);
-  install("apply", builtin_apply);
+  env->define(runtime->intern("apply"),
+              runtime->alloc<Builtin>(Builtin::Apply{}));
   install("load", builtin_load);
   install("file-exists?", builtin_file_exists);
   install("exit", builtin_exit);

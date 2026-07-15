@@ -29,7 +29,15 @@ The REPL supports multi-line input (brackets are tracked across lines), line edi
 
 The same interpreter runs in the browser, compiled to WebAssembly: <https://adityakamath255.github.io/scheme-cpp/>
 
-The `src/` sources compile to wasm via Embind. `web/main.cpp` exposes a `Session` whose `step` method reads and evaluates one form at a time, sharing the same read/eval driver as the terminal. `web/index.html` is a two-pane playground: a code editor on the left, results on the right, run with the button or Ctrl/Cmd+Enter. The program persists in `localStorage`, the split between the panes is draggable, "Copy link" encodes the program into a shareable URL, and each run reports its evaluation time. A session keeps its definitions across runs; "Reset session" starts fresh. A GitHub Actions workflow (`.github/workflows/pages.yml`) builds with emscripten and deploys to GitHub Pages on every push to `main`.
+The `src/` sources compile to wasm via Embind. `web/main.cpp` wraps the same
+`scheme::Session` API as the terminal. `web/index.html` is a two-pane
+playground: a code editor on the left, results on the right, run with the
+button or Ctrl/Cmd+Enter. The program persists in `localStorage`, the split
+between the panes is draggable, "Copy link" encodes the program into a
+shareable URL, and each run reports its evaluation time. A session keeps its
+definitions across runs; "Reset session" starts fresh. A GitHub Actions
+workflow (`.github/workflows/pages.yml`) builds with emscripten and deploys to
+GitHub Pages on every push to `main`.
 
 Building the wasm locally needs the [emscripten SDK](https://emscripten.org):
 
@@ -160,22 +168,33 @@ Tests are written in Scheme using a small framework (`tests/framework.scm`) that
 
 ## Source layout
 
-The core interpreter is ten source files in `src/`:
+The core interpreter lives in `src/`:
 
-- `lex.cpp` - tokenizer. Returns `nullopt` for incomplete input, which `driver.cpp` turns into an `Incomplete` result so both the terminal and browser REPLs detect multi-line expressions without a separate bracket checker.
+- `lex.cpp` - tokenizer. Returns `nullopt` for incomplete input so clients can
+  detect multi-line expressions without a separate bracket checker.
 - `parse.cpp` - recursive descent parser. Produces S-expressions (cons cells, symbols, literals), not an AST.
 - `types.cpp` - the `Obj` class wrapping `std::variant<bool, char, Number, Symbol, String*, Cons*, Vector*, Procedure*, Builtin*, Null, Void>`, where `Number` is a fixnum/bignum/double variant. Provides type checks, accessors, structural equality, and printing (`to_write`/`to_display`).
 - `number.cpp` - the `Number` type: exact fixnums that auto-promote to libtommath bignums on overflow, plus inexact doubles. Arithmetic, comparison, and exact/inexact conversion.
 - `env.cpp` - lexical environments. `GlobalEnv` is a hash map from interned symbols to values; `LocalEnv` is a small vector of bindings with a parent pointer.
-- `ctx.cpp` - the `Ctx` class: arena allocator, symbol intern table, and garbage collector.
-- `eval.cpp` - evaluator. Dispatches special forms by symbol name, evaluates procedure calls, implements the tail call trampoline.
+- `runtime.cpp` - persistent session state: arena allocator, symbol intern
+  table, global environment, and garbage collector.
+- `eval.cpp` - per-run evaluator. Dispatches special forms by symbol name,
+  evaluates procedure calls, emits output, and implements the tail call
+  trampoline.
 - `builtins.cpp` - all built-in procedure implementations, registered as raw function pointers.
 - `preamble.cpp` - the standard library, stored as a string literal and evaluated at startup.
-- `driver.cpp` - reads and evaluates one top-level form (`read_eval`) or a whole source (`run_all`). The GC-recycle step between forms lives here, and both the terminal REPL and the wasm front-end build on it.
-The two front-ends build on `driver.cpp`:
+- `source.cpp` - the `Evaluator` source loop. It reports how much input was
+  consumed, distinguishes incomplete input from completion, and runs GC
+  between top-level forms.
+- `session.cpp` - the public `scheme::Session` boundary. It owns the runtime,
+  installs builtins and the preamble, and exposes incremental and strict
+  execution.
+
+The two front-ends use `scheme::Session` through `include/scheme.hpp`:
 
 - `cli/main.cpp` - argument parsing, file execution, and the replxx REPL loop.
-- `web/main.cpp` - exposes an Embind `Session` (see [Web](#web)), compiled to WebAssembly.
+- `web/main.cpp` - wraps `scheme::Session` with Embind (see [Web](#web)),
+  compiled to WebAssembly.
 
 ## Limitations
 

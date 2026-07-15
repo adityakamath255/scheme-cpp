@@ -1,48 +1,59 @@
-#include "ctx.hpp"
-#include "builtins.hpp"
-#include "preamble.hpp"
-#include "driver.hpp"
+#include "scheme.hpp"
 #include <replxx.hxx>
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <unistd.h>
 
-static void repl(Ctx *ctx) {
+static void print_repl_event(const scheme::Event &event) {
+  if (auto *output = std::get_if<scheme::Output>(&event)) {
+    std::cout << output->text;
+  }
+  else {
+    std::cout << std::get<scheme::Result>(event).text << "\n";
+  }
+}
+
+static void print_batch_event(const scheme::Event &event) {
+  if (auto *output = std::get_if<scheme::Output>(&event)) {
+    std::cout << output->text;
+  }
+}
+
+static void repl(scheme::Session *session) {
   replxx::Replxx rx;
   rx.set_max_history_size(1024);
   rx.set_word_break_characters(" \t\r\n()[]'\";");
 
   std::string input;
+  bool incomplete = false;
 
-  rx.bind_key(replxx::Replxx::KEY::control('C'), [&rx, &input](char32_t code) {
-    rx.invoke(replxx::Replxx::ACTION::CLEAR_SELF, code);
-    input.clear();
-    return replxx::Replxx::ACTION_RESULT::RETURN;
-  });
+  rx.bind_key(
+    replxx::Replxx::KEY::control('C'),
+    [&rx, &input, &incomplete](char32_t code) {
+      rx.invoke(replxx::Replxx::ACTION::CLEAR_SELF, code);
+      input.clear();
+      incomplete = false;
+      return replxx::Replxx::ACTION_RESULT::RETURN;
+    }
+  );
 
   while (true) {
     try {
-      ReadEval r = read_eval(input, ctx);
-      if (auto *e = std::get_if<Evaluated>(&r)) {
-        std::string rest(e->rest);
-        std::cout << e->output;
-        if (!e->value.is_void()) {
-          std::cout << e->value.to_write() << "\n";
-        }
-        input = rest;
-        continue;
-      }
-      if (std::holds_alternative<Exhausted>(r)) {
+      auto result = session->run(input, print_repl_event);
+      input.erase(0, result.consumed);
+      incomplete = result.incomplete;
+      if (!incomplete) {
         input.clear();
       }
     }
     catch (const std::exception &e) {
       std::cerr << "error: " << e.what() << "\n";
       input.clear();
+      incomplete = false;
     }
 
-    char const *line = rx.input(input.empty() ? ">> " : ".. ");
+    char const *line = rx.input(incomplete ? ".. " : ">> ");
     if (!line) {
       break;
     }
@@ -78,11 +89,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  auto to_stdout = [](std::string_view s) { std::cout << s; };
-
-  Ctx ctx;
-  install_builtins(&ctx);
-  run_all(preamble, &ctx, [](std::string_view) {});
+  scheme::Session session;
 
   if (filename) {
     std::ifstream file(*filename);
@@ -94,7 +101,7 @@ int main(int argc, char *argv[]) {
     buf << file.rdbuf();
 
     try {
-      run_all(buf.str(), &ctx, to_stdout);
+      session.execute(buf.str(), print_batch_event);
     }
     catch (const std::exception &e) {
       std::cerr << "error: " << e.what() << "\n";
@@ -106,7 +113,7 @@ int main(int argc, char *argv[]) {
     buf << std::cin.rdbuf();
 
     try {
-      run_all(buf.str(), &ctx, to_stdout);
+      session.execute(buf.str(), print_batch_event);
     }
     catch (const std::exception &e) {
       std::cerr << "error: " << e.what() << "\n";
@@ -116,6 +123,6 @@ int main(int argc, char *argv[]) {
 
   if (interactive || (!filename && isatty(STDIN_FILENO))) {
     std::cout << "Scheme - Ctrl+D to exit, Ctrl+C to clear\n\n";
-    repl(&ctx);
+    repl(&session);
   }
 }
