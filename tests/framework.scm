@@ -8,7 +8,7 @@
         (set! _fail (+ _fail 1))
         (display "  FAIL: ")
         (display desc)
-        (display " — expected ")
+        (display ": expected ")
         (write expected)
         (display ", got ")
         (write actual)

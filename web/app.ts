@@ -167,7 +167,10 @@ class Repl {
       else if (r.kind === "error") this.console.error(r.text);
       return ms;
     } catch (ex) {
-      if (ex instanceof RangeError) { this.console.error(ex.message); return performance.now() - t0; }
+      if (ex instanceof RangeError) {
+        this.console.error(ex.message);
+        return performance.now() - t0;
+      }
       this.console.error(ex instanceof Error ? ex.message : String(ex));
       this.console.error("Session crashed and was restarted; defined values are lost.");
       await this.boot();
@@ -179,7 +182,11 @@ class Repl {
 class App {
   private readonly console = new Console(byId("output"));
   private readonly repl = new Repl(this.console);
-  private readonly editor = new Editor(byId<HTMLTextAreaElement>("editor"), "scheme-program", () => this.run());
+  private readonly editor = new Editor(
+    byId<HTMLTextAreaElement>("editor"),
+    "scheme-program",
+    () => this.run(),
+  );
   private readonly split = new SplitPane(byId("gutter"), "scheme-split");
   private readonly runBtn = byId<HTMLButtonElement>("run");
   private readonly resetBtn = byId<HTMLButtonElement>("reset");

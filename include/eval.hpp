@@ -3,6 +3,9 @@
 #include "scheme.hpp"
 #include "types.hpp"
 
+#include <cstddef>
+#include <string>
+#include <string_view>
 #include <utility>
 
 enum class ResultMode {

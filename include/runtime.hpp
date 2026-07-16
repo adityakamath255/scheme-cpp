@@ -4,10 +4,13 @@
 #include "types.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <ranges>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 class Runtime {
   std::vector<HeapEntity *> live;

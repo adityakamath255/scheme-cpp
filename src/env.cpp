@@ -3,8 +3,6 @@
 
 GlobalEnv::GlobalEnv(): bindings {} {}
 
-GlobalEnv::~GlobalEnv() = default;
-
 std::optional<Obj> GlobalEnv::lookup(Symbol sym) const {
   auto it = bindings.find(sym);
   if (it != bindings.end()) {
@@ -37,8 +35,6 @@ void GlobalEnv::trace(std::vector<HeapEntity *> *worklist) const {
 }
 
 LocalEnv::LocalEnv(Env *parent): bindings {}, parent {parent} {}
-
-LocalEnv::~LocalEnv() = default;
 
 std::optional<Obj> LocalEnv::lookup(Symbol sym) const {
   for (const auto &[k, v] : bindings) {

@@ -373,8 +373,6 @@ ListProfile Obj::get_list_profile() const {
   return {.size = len, .is_proper = curr.is_null()};
 }
 
-size_t Obj::get_list_size() const { return get_list_profile().size; }
-
 bool Obj::is_list() const { return get_list_profile().is_proper; }
 
 String::String(std::string data) : data{std::move(data)} {}

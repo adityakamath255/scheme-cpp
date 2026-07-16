@@ -1,6 +1,9 @@
 #pragma once
 #include "types.hpp"
+#include <optional>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 class Env : public HeapEntity {
 public:
@@ -14,7 +17,6 @@ class GlobalEnv : public Env {
 
 public:
   GlobalEnv();
-  ~GlobalEnv();
 
   std::optional<Obj> lookup(Symbol name) const override;
   void define(Symbol name, Obj value) override;
@@ -29,7 +31,6 @@ class LocalEnv : public Env {
 
 public:
   LocalEnv(Env *);
-  ~LocalEnv();
 
   std::optional<Obj> lookup(Symbol name) const override;
   void define(Symbol name, Obj value) override;

@@ -1,7 +1,7 @@
 #pragma once
+#include <optional>
 #include <string_view>
 #include <vector>
-#include <optional>
 
 struct Token {
   enum Type {

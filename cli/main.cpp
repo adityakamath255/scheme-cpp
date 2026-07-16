@@ -1,8 +1,13 @@
 #include "scheme.hpp"
 #include <replxx.hxx>
-#include <iostream>
+#include <exception>
 #include <fstream>
+#include <iostream>
+#include <optional>
 #include <sstream>
+#include <string>
+#include <string_view>
+#include <variant>
 #include <unistd.h>
 
 static void print_repl_event(const scheme::Event &event) {

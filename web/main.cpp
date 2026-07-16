@@ -2,7 +2,9 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 #include <emscripten.h>
+#include <exception>
 #include <string>
+#include <variant>
 
 emscripten::val msg(const char *kind) {
   emscripten::val o = emscripten::val::object();

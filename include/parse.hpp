@@ -1,6 +1,7 @@
 #pragma once
 #include "types.hpp"
 #include "lex.hpp"
+#include <vector>
 
 class Runtime;
 

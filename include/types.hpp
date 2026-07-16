@@ -1,5 +1,8 @@
 #pragma once
 #include <compare>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <iterator>
 #include <optional>
 #include <stdexcept>
@@ -160,7 +163,6 @@ public:
   std::string stringify_type() const;
 
   ListProfile get_list_profile() const;
-  size_t get_list_size() const;
   bool is_list() const;
 
   Obj car() const;

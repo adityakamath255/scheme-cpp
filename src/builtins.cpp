@@ -7,9 +7,12 @@
 #include <algorithm>
 #include <cmath>
 #include <compare>
+#include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <ranges>
 #include <sstream>
