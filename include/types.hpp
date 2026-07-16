@@ -71,6 +71,7 @@ public:
   bool is_even() const;
 
   double to_double() const;
+  std::optional<size_t> to_size() const;
 
   Number add(Number o, Evaluator *evaluator) const;
   Number sub(Number o, Evaluator *evaluator) const;

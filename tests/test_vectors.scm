@@ -4,6 +4,16 @@
 (assert "make-vector" #(0 0 0) (make-vector 3))
 (assert "make-vector fill" #(7 7 7) (make-vector 3 7))
 (assert "vector-ref" 2 (vector-ref #(1 2 3) 1))
+(assert "inexact vector index" 1 (vector-ref #(1) 0.0))
+(assert "fractional vector index" "vector-ref: expected non-negative integer"
+        (guard (e (#t (error-object-message e)))
+          (vector-ref #(1) 0.5)))
+(assert "negative vector index" "vector-ref: expected non-negative integer"
+        (guard (e (#t (error-object-message e)))
+          (vector-ref #(1) -1)))
+(assert "oversized vector index" "vector-ref: expected non-negative integer"
+        (guard (e (#t (error-object-message e)))
+          (vector-ref #(1) (expt 2 100))))
 (assert "vector-length" 3 (vector-length #(1 2 3)))
 (assert "vector?" #t (vector? #(1 2)))
 (assert "vector? false" #f (vector? '(1 2)))

@@ -114,6 +114,16 @@
 (assert "exact of bignum unchanged" #t (eqv? (exact (expt 2 64)) (expt 2 64)))
 (assert "exact->inexact alias" #t (eqv? (exact->inexact 5) 5.0))
 (assert "inexact->exact alias" #t (eqv? (inexact->exact 5.0) 5))
+(assert "inexact->exact lower boundary" "-9223372036854775808"
+        (number->string (inexact->exact -9.223372036854776e18)))
+(assert "inexact->exact upper boundary" #t
+        (guard (e ((error-object? e) #t))
+          (inexact->exact 9.223372036854776e18)
+          #f))
+(assert "inexact->exact magnitude" #t
+        (guard (e ((error-object? e) #t))
+          (inexact->exact -1e20)
+          #f))
 
 (assert "zero?" #t (zero? 0))
 (assert "zero? nonzero" #f (zero? 1))

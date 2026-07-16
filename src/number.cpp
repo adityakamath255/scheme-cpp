@@ -43,6 +43,7 @@ struct Mp {
 
 constexpr int64_t fixnum_min = std::numeric_limits<int64_t>::min() + 1;
 constexpr int64_t fixnum_max = std::numeric_limits<int64_t>::max();
+constexpr double int64_magnitude = 0x1p63;
 
 template<typename Allocator>
 Rep of_i64(int64_t v, Allocator *allocator) {
@@ -180,6 +181,41 @@ bool Number::is_zero() const {
 
 double Number::to_double() const { 
   return rep_to_double(rep); 
+}
+
+std::optional<size_t> Number::to_size() const {
+  static_assert(std::numeric_limits<size_t>::digits <= 64);
+
+  return std::visit(overloaded {
+    [](int64_t v) -> std::optional<size_t> {
+      if (v < 0
+          || static_cast<uint64_t>(v) > std::numeric_limits<size_t>::max()) {
+        return std::nullopt;
+      }
+      return static_cast<size_t>(v);
+    },
+    [](BigInt *b) -> std::optional<size_t> {
+      if (mp_isneg(&b->val)
+          || mp_count_bits(&b->val)
+              > std::numeric_limits<size_t>::digits) {
+        return std::nullopt;
+      }
+      return static_cast<size_t>(mp_get_mag_u64(&b->val));
+    },
+    [](double d) -> std::optional<size_t> {
+      double limit = std::ldexp(
+        1.0,
+        std::numeric_limits<size_t>::digits
+      );
+      if (!std::isfinite(d)
+          || std::trunc(d) != d
+          || d < 0
+          || d >= limit) {
+        return std::nullopt;
+      }
+      return static_cast<size_t>(d);
+    },
+  }, rep);
 }
 
 bool Number::is_integer() const {
@@ -327,8 +363,7 @@ Number Number::to_exact(Evaluator *evaluator) const {
     if (!std::isfinite(d) || std::trunc(d) != d) {
       throw SchemeError("inexact->exact: not an integer");
     }
-    if (d < static_cast<double>(fixnum_min)
-        || d > static_cast<double>(fixnum_max)) {
+    if (d < -int64_magnitude || d >= int64_magnitude) {
       throw SchemeError("inexact->exact: magnitude too large");
     }
     return Number(of_i64(static_cast<int64_t>(d), evaluator));

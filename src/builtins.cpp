@@ -38,15 +38,12 @@ static Number as_num(Obj obj, std::string_view context) {
 }
 
 static size_t as_index(Obj obj, std::string_view context) {
-  Number n = as_num(obj, context);
-  double d = n.to_double();
-  bool in_range =
-      std::isfinite(d) && d >= 0 && d <= static_cast<double>(SIZE_MAX);
-  if (!n.is_integer() || !in_range) {
+  auto index = as_num(obj, context).to_size();
+  if (!index) {
     throw SchemeError(
         std::format("{}: expected non-negative integer", context));
   }
-  return static_cast<size_t>(d);
+  return *index;
 }
 
 static String *as_string(Obj obj, std::string_view context) {
