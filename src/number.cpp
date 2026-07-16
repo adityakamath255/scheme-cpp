@@ -46,9 +46,9 @@ constexpr int64_t fixnum_max = std::numeric_limits<int64_t>::max();
 constexpr double int64_magnitude = 0x1p63;
 
 template<typename Allocator>
-Rep of_i64(int64_t v, Allocator *allocator) {
+Rep of_i64(int64_t v, Allocator &allocator) {
   if (v < fixnum_min) {
-    BigInt *b = allocator->template alloc<BigInt>();
+    BigInt *b = allocator.template alloc<BigInt>();
     mp_set_i64(&b->val, v);
     return b;
   }
@@ -58,7 +58,7 @@ Rep of_i64(int64_t v, Allocator *allocator) {
 }
 
 template<typename Allocator>
-Rep from_bigint(BigInt *b, Allocator *allocator) {
+Rep from_bigint(BigInt *b, Allocator &allocator) {
   if (mp_count_bits(&b->val) < 64) {
     return of_i64(mp_get_i64(&b->val), allocator);
   }
@@ -106,15 +106,15 @@ bool rep_is_negative(const Rep &r) {
 using MpBinop = mp_err (*)(const mp_int *, const mp_int *, mp_int *);
 using MpUnop  = mp_err (*)(const mp_int *, mp_int *);
 
-Rep exact_binop(const Rep &a, const Rep &b, Evaluator *evaluator, MpBinop op) {
-  BigInt *r = evaluator->alloc<BigInt>();
+Rep exact_binop(const Rep &a, const Rep &b, Evaluator &evaluator, MpBinop op) {
+  BigInt *r = evaluator.alloc<BigInt>();
   Mp sa, sb;
   check(op(as_mp(a, sa), as_mp(b, sb), &r->val));
   return from_bigint(r, evaluator);
 }
 
 template<typename Op>
-Rep arith(const Rep &a, const Rep &b, Evaluator *evaluator, Op op, MpBinop mp) {
+Rep arith(const Rep &a, const Rep &b, Evaluator &evaluator, Op op, MpBinop mp) {
   if (rep_is_exact(a) && rep_is_exact(b)) {
     auto ai = std::get_if<int64_t>(&a);
     auto bi = std::get_if<int64_t>(&b);
@@ -132,11 +132,11 @@ Rep arith(const Rep &a, const Rep &b, Evaluator *evaluator, Op op, MpBinop mp) {
 }
 
 template<typename Fix>
-Rep unary(const Rep &a, Evaluator *evaluator, MpUnop mp, Fix fix) {
+Rep unary(const Rep &a, Evaluator &evaluator, MpUnop mp, Fix fix) {
   return std::visit(overloaded {
     [&](int64_t v) -> Rep { return of_i64(fix(v), evaluator); },
     [&](BigInt *b) -> Rep {
-      BigInt *r = evaluator->alloc<BigInt>();
+      BigInt *r = evaluator.alloc<BigInt>();
       check(mp(&b->val, &r->val));
       return from_bigint(r, evaluator);
     },
@@ -146,14 +146,14 @@ Rep unary(const Rep &a, Evaluator *evaluator, MpUnop mp, Fix fix) {
 
 struct QuotRem { Rep quot; Rep rem; };
 
-QuotRem divmod(const Rep &a, const Rep &b, Evaluator *evaluator) {
+QuotRem divmod(const Rep &a, const Rep &b, Evaluator &evaluator) {
   if (auto ai = std::get_if<int64_t>(&a)) {
     if (auto bi = std::get_if<int64_t>(&b)) {
       return { of_i64(*ai / *bi, evaluator), of_i64(*ai % *bi, evaluator) };
     }
   }
-  BigInt *q = evaluator->alloc<BigInt>();
-  BigInt *r = evaluator->alloc<BigInt>();
+  BigInt *q = evaluator.alloc<BigInt>();
+  BigInt *r = evaluator.alloc<BigInt>();
   Mp sa, sb;
   check(mp_div(as_mp(a, sa), as_mp(b, sb), &q->val, &r->val));
   return { from_bigint(q, evaluator), from_bigint(r, evaluator) };
@@ -163,7 +163,7 @@ QuotRem divmod(const Rep &a, const Rep &b, Evaluator *evaluator) {
 
 Number::Number(Rep r): rep {std::move(r)} {}
 
-Number Number::exact(int64_t v, Evaluator *evaluator) { 
+Number Number::exact(int64_t v, Evaluator &evaluator) { 
   return Number(of_i64(v, evaluator)); 
 }
 
@@ -236,25 +236,25 @@ bool Number::is_even() const {
   }, rep);
 }
 
-Number Number::add(Number o, Evaluator *evaluator) const { 
+Number Number::add(Number o, Evaluator &evaluator) const { 
   return Number(arith(
     rep, o.rep, evaluator, std::plus<>{}, mp_add
   ));
 }
 
-Number Number::sub(Number o, Evaluator *evaluator) const { 
+Number Number::sub(Number o, Evaluator &evaluator) const { 
   return Number(arith(
     rep, o.rep, evaluator, std::minus<>{}, mp_sub
   )); 
 }
 
-Number Number::mul(Number o, Evaluator *evaluator) const {
+Number Number::mul(Number o, Evaluator &evaluator) const {
   return Number(arith(
     rep, o.rep, evaluator, std::multiplies<>{}, mp_mul
   ));
 }
 
-Number Number::div(Number o, Evaluator *evaluator) const {
+Number Number::div(Number o, Evaluator &evaluator) const {
   if (is_exact() && o.is_exact()) {
     if (o.is_zero()) {
       throw SchemeError("/: division by zero");
@@ -267,26 +267,26 @@ Number Number::div(Number o, Evaluator *evaluator) const {
   return inexact(to_double() / o.to_double());
 }
 
-Number Number::neg(Evaluator *evaluator) const {
+Number Number::neg(Evaluator &evaluator) const {
   return Number(unary(
     rep, evaluator, mp_neg, [](auto x) { return -x; }
   ));
 }
 
-Number Number::abs(Evaluator *evaluator) const {
+Number Number::abs(Evaluator &evaluator) const {
   return Number(unary(
     rep, evaluator, mp_abs, [](auto x) { return x < 0 ? -x : x; }
   ));
 }
 
-Number Number::sqrt(Evaluator *evaluator) const {
+Number Number::sqrt(Evaluator &evaluator) const {
   if (is_exact() && !rep_is_negative(rep)) {
     Mp scratch;
     const mp_int *m = as_mp(rep, scratch);
     bool square = false;
     check(mp_is_square(m, &square));
     if (square) {
-      BigInt *r = evaluator->alloc<BigInt>();
+      BigInt *r = evaluator.alloc<BigInt>();
       check(mp_sqrt(m, &r->val));
       return Number(from_bigint(r, evaluator));
     }
@@ -294,7 +294,7 @@ Number Number::sqrt(Evaluator *evaluator) const {
   return inexact(std::sqrt(to_double()));
 }
 
-Number Number::quotient(Number o, Evaluator *evaluator) const {
+Number Number::quotient(Number o, Evaluator &evaluator) const {
   if (o.is_zero()) {
     throw SchemeError("quotient: division by zero");
   }
@@ -306,7 +306,7 @@ Number Number::quotient(Number o, Evaluator *evaluator) const {
     return inexact(std::trunc(to_double() / o.to_double()));
   }
 }
-Number Number::remainder(Number o, Evaluator *evaluator) const {
+Number Number::remainder(Number o, Evaluator &evaluator) const {
   if (o.is_zero()) {
     throw SchemeError("remainder: division by zero");
   }
@@ -319,7 +319,7 @@ Number Number::remainder(Number o, Evaluator *evaluator) const {
   }
 }
 
-Number Number::modulo(Number o, Evaluator *evaluator) const {
+Number Number::modulo(Number o, Evaluator &evaluator) const {
   if (o.is_zero()) {
     throw SchemeError("modulo: division by zero");
   }
@@ -336,11 +336,11 @@ Number Number::modulo(Number o, Evaluator *evaluator) const {
   }
 }
 
-Number Number::expt(Number power, Evaluator *evaluator) const {
+Number Number::expt(Number power, Evaluator &evaluator) const {
   if (is_exact()) {
     if (auto e = std::get_if<int64_t>(&power.rep)) {
       if (*e >= 0 && *e <= std::numeric_limits<int>::max()) {
-        BigInt *r = evaluator->alloc<BigInt>();
+        BigInt *r = evaluator.alloc<BigInt>();
         Mp sb;
         check(mp_expt_n(as_mp(rep, sb), static_cast<int>(*e), &r->val));
         return Number(from_bigint(r, evaluator));
@@ -354,7 +354,7 @@ Number Number::to_inexact() const {
   return is_exact() ? inexact(to_double()) : *this;
 }
 
-Number Number::to_exact(Evaluator *evaluator) const {
+Number Number::to_exact(Evaluator &evaluator) const {
   if (is_exact()) {
     return *this;
   }
@@ -414,7 +414,7 @@ bool Number::eqv(Number o) const {
     && compare(o) == std::partial_ordering::equivalent;
 }
 
-Number Number::parse(std::string_view lexeme, Runtime *runtime) {
+Number Number::parse(std::string_view lexeme, Runtime &runtime) {
   if (lexeme == "+inf.0") {
     return inexact(std::numeric_limits<double>::infinity());
   }
@@ -448,7 +448,7 @@ Number Number::parse(std::string_view lexeme, Runtime *runtime) {
     }
     else if (ec == std::errc::result_out_of_range) {
       std::string s(lexeme);
-      BigInt *b = runtime->alloc<BigInt>();
+      BigInt *b = runtime.alloc<BigInt>();
       check(mp_read_radix(&b->val, s.c_str(), 10));
       return Number(from_bigint(b, runtime));
     }
@@ -488,10 +488,10 @@ std::string Number::to_string() const {
   }, rep);
 }
 
-std::optional<HeapEntity *> Number::heap_entity() const {
+HeapEntity *Number::heap_entity() const {
   return std::visit(overloaded {
-    [](int64_t)   -> std::optional<HeapEntity *> { return std::nullopt; },
-    [](BigInt *b) -> std::optional<HeapEntity *> { return b; },
-    [](double)    -> std::optional<HeapEntity *> { return std::nullopt; },
+    [](int64_t) -> HeapEntity * { return nullptr; },
+    [](BigInt *b) -> HeapEntity * { return b; },
+    [](double) -> HeapEntity * { return nullptr; },
   }, rep);
 }

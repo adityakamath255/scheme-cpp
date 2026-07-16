@@ -10,9 +10,9 @@
 #include <type_traits>
 #include <utility>
 
-Symbol::Symbol(const std::string *ptr) : ptr{ptr} {}
+Symbol::Symbol(const std::string &name) : ptr{&name} {}
 
-const std::string &Symbol::get_name() const { return *ptr; }
+const std::string &Symbol::name() const { return *ptr; }
 
 bool Symbol::operator==(Symbol other) const { return ptr == other.ptr; }
 
@@ -53,7 +53,7 @@ static_assert(alt_is<Type::Error, Error *>);
 static_assert(alt_is<Type::Null, Null>);
 static_assert(alt_is<Type::Void, Void>);
 
-Type Obj::get_type() const { return static_cast<Type>(data.index()); }
+Type Obj::type() const { return static_cast<Type>(data.index()); }
 
 bool Obj::is_bool() const { return std::holds_alternative<bool>(data); }
 
@@ -89,7 +89,7 @@ static T expect(const Value &data, std::string_view wanted) {
     return *p;
   }
   throw SchemeError(
-      std::format("expected {}, got {}", wanted, Obj(data).stringify_type()));
+      std::format("expected {}, got {}", wanted, Obj(data).type_name()));
 }
 
 bool Obj::as_bool() const { return expect<bool>(data, "boolean"); }
@@ -118,18 +118,17 @@ Promise *Obj::as_promise() const { return expect<Promise *>(data, "promise"); }
 
 Error *Obj::as_error() const { return expect<Error *>(data, "error"); }
 
-std::optional<HeapEntity *> Obj::heap_entity() const {
-  using Ret = std::optional<HeapEntity *>;
+HeapEntity *Obj::heap_entity() const {
   return std::visit(overloaded{
                         [](Number n) { return n.heap_entity(); },
-                        [](String *s) -> Ret { return s; },
-                        [](Cons *c) -> Ret { return c; },
-                        [](Vector *v) -> Ret { return v; },
-                        [](Procedure *p) -> Ret { return p; },
-                        [](Builtin *b) -> Ret { return b; },
-                        [](Promise *p) -> Ret { return p; },
-                        [](Error *e) -> Ret { return e; },
-                        [](auto) -> Ret { return std::nullopt; },
+                        [](String *s) -> HeapEntity * { return s; },
+                        [](Cons *c) -> HeapEntity * { return c; },
+                        [](Vector *v) -> HeapEntity * { return v; },
+                        [](Procedure *p) -> HeapEntity * { return p; },
+                        [](Builtin *b) -> HeapEntity * { return b; },
+                        [](Promise *p) -> HeapEntity * { return p; },
+                        [](Error *e) -> HeapEntity * { return e; },
+                        [](auto) -> HeapEntity * { return nullptr; },
                     },
                     data);
 }
@@ -147,7 +146,7 @@ bool Obj::equals(Obj other) const {
     return false;
   }
 
-  switch (get_type()) {
+  switch (type()) {
   case Type::Bool:
     return as_bool() == other.as_bool();
   case Type::Char:
@@ -200,7 +199,7 @@ std::string Obj::to_write() const { return render(*this, true); }
 std::string Obj::to_display() const { return render(*this, false); }
 
 static std::string render(Obj obj, bool write) {
-  switch (obj.get_type()) {
+  switch (obj.type()) {
   case Type::Bool:
     return obj.as_bool() ? "#t" : "#f";
 
@@ -227,7 +226,7 @@ static std::string render(Obj obj, bool write) {
   }
 
   case Type::Symbol:
-    return obj.as_symbol().get_name();
+    return obj.as_symbol().name();
 
   case Type::String:
     if (!write) {
@@ -293,8 +292,8 @@ static std::string render(Obj obj, bool write) {
   std::unreachable();
 }
 
-std::string Obj::stringify_type() const {
-  switch (get_type()) {
+std::string Obj::type_name() const {
+  switch (type()) {
   case Type::Bool:
     return "boolean";
   case Type::Number:
@@ -361,7 +360,7 @@ Obj ListView::tail() const {
   return cur;
 }
 
-ListProfile Obj::get_list_profile() const {
+ListProfile Obj::list_profile() const {
   size_t len = 0;
   Obj curr = *this;
   while (curr.is_cons()) {
@@ -371,26 +370,26 @@ ListProfile Obj::get_list_profile() const {
   return {.size = len, .is_proper = curr.is_null()};
 }
 
-bool Obj::is_list() const { return get_list_profile().is_proper; }
+bool Obj::is_list() const { return list_profile().is_proper; }
 
 String::String(std::string data) : data{std::move(data)} {}
 
-void trace_child(Obj obj, std::vector<HeapEntity *> *worklist) {
-  if (auto entity = obj.heap_entity()) {
-    worklist->push_back(*entity);
+void trace_child(Obj obj, std::vector<HeapEntity *> &worklist) {
+  if (auto *entity = obj.heap_entity()) {
+    worklist.push_back(entity);
   }
 }
 
 Cons::Cons(Obj car, Obj cdr) : car{car}, cdr{cdr} {}
 
-void Cons::trace(std::vector<HeapEntity *> *worklist) const {
+void Cons::trace(std::vector<HeapEntity *> &worklist) const {
   trace_child(car, worklist);
   trace_child(cdr, worklist);
 }
 
 Vector::Vector(std::vector<Obj> data) : data{std::move(data)} {}
 
-void Vector::trace(std::vector<HeapEntity *> *worklist) const {
+void Vector::trace(std::vector<HeapEntity *> &worklist) const {
   for (Obj obj : data) {
     trace_child(obj, worklist);
   }
@@ -399,28 +398,28 @@ void Vector::trace(std::vector<HeapEntity *> *worklist) const {
 Builtin::Builtin(Builtin::Implementation implementation)
     : implementation{std::move(implementation)} {}
 
-Procedure::Procedure(Formals formals, Obj body, Env *env, ProcedureKind kind)
+Procedure::Procedure(Formals formals, Obj body, Env &env, ProcedureKind kind)
     : formals{std::move(formals)}, body{body}, env{env}, kind{kind} {}
 
-void Procedure::trace(std::vector<HeapEntity *> *worklist) const {
+void Procedure::trace(std::vector<HeapEntity *> &worklist) const {
   trace_child(body, worklist);
-  worklist->push_back(env);
+  worklist.push_back(&env.get());
 }
 
-Promise::Promise(Obj body, Env *env) : state{Thunk{body, env}} {}
+Promise::Promise(Obj body, Env &env) : state{Thunk{body, env}} {}
 
-Obj Promise::force(Evaluator *evaluator) {
+Obj Promise::force(Evaluator &evaluator) {
   if (auto *t = std::get_if<Thunk>(&state)) {
-    state = evaluator->eval(t->body, t->env);
+    state = evaluator.eval(t->body, t->env.get());
   }
   return std::get<Obj>(state);
 }
 
-void Promise::trace(std::vector<HeapEntity *> *worklist) const {
+void Promise::trace(std::vector<HeapEntity *> &worklist) const {
   std::visit(overloaded{
                  [&](const Thunk &t) {
                    trace_child(t.body, worklist);
-                   worklist->push_back(t.env);
+                   worklist.push_back(&t.env.get());
                  },
                  [&](Obj value) { trace_child(value, worklist); },
              },
@@ -436,7 +435,7 @@ std::string Error::describe() const {
              : message + " " + join_elems(ListView{irritants}, true);
 }
 
-void Error::trace(std::vector<HeapEntity *> *worklist) const {
+void Error::trace(std::vector<HeapEntity *> &worklist) const {
   trace_child(irritants, worklist);
 }
 
@@ -454,6 +453,6 @@ SchemeError SchemeError::raised(Obj payload) {
   return e;
 }
 
-Obj SchemeError::as_condition(Evaluator *evaluator) {
-  return payload ? *payload : Obj(evaluator->alloc<Error>(what(), Null{}));
+Obj SchemeError::as_condition(Evaluator &evaluator) {
+  return payload ? *payload : Obj(evaluator.alloc<Error>(what(), Null{}));
 }

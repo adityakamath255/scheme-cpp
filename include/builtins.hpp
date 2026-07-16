@@ -3,4 +3,4 @@
 
 class Runtime;
 
-void install_builtins(Runtime *runtime);
+void install_builtins(Runtime &runtime);

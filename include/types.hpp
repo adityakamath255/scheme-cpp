@@ -18,7 +18,7 @@ template <class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 struct BigInt;
 class Number;
-struct Symbol;
+class Symbol;
 struct String;
 struct Cons;
 struct Vector;
@@ -61,9 +61,9 @@ class Number {
   explicit Number(std::variant<int64_t, BigInt *, double> rep);
 
 public:
-  static Number exact(int64_t v, Evaluator *evaluator);
+  static Number exact(int64_t v, Evaluator &evaluator);
   static Number inexact(double v);
-  static Number parse(std::string_view lexeme, Runtime *runtime);
+  static Number parse(std::string_view lexeme, Runtime &runtime);
 
   bool is_exact() const;
   bool is_integer() const;
@@ -73,33 +73,37 @@ public:
   double to_double() const;
   std::optional<size_t> to_size() const;
 
-  Number add(Number o, Evaluator *evaluator) const;
-  Number sub(Number o, Evaluator *evaluator) const;
-  Number mul(Number o, Evaluator *evaluator) const;
-  Number div(Number o, Evaluator *evaluator) const;
-  Number neg(Evaluator *evaluator) const;
-  Number abs(Evaluator *evaluator) const;
-  Number sqrt(Evaluator *evaluator) const;
-  Number quotient(Number o, Evaluator *evaluator) const;
-  Number remainder(Number o, Evaluator *evaluator) const;
-  Number modulo(Number o, Evaluator *evaluator) const;
-  Number expt(Number power, Evaluator *evaluator) const;
+  Number add(Number o, Evaluator &evaluator) const;
+  Number sub(Number o, Evaluator &evaluator) const;
+  Number mul(Number o, Evaluator &evaluator) const;
+  Number div(Number o, Evaluator &evaluator) const;
+  Number neg(Evaluator &evaluator) const;
+  Number abs(Evaluator &evaluator) const;
+  Number sqrt(Evaluator &evaluator) const;
+  Number quotient(Number o, Evaluator &evaluator) const;
+  Number remainder(Number o, Evaluator &evaluator) const;
+  Number modulo(Number o, Evaluator &evaluator) const;
+  Number expt(Number power, Evaluator &evaluator) const;
   Number to_inexact() const;
-  Number to_exact(Evaluator *evaluator) const;
+  Number to_exact(Evaluator &evaluator) const;
 
   std::partial_ordering compare(Number o) const;
   bool eqv(Number o) const;
 
   std::string to_string() const;
-  std::optional<HeapEntity *> heap_entity() const;
+  HeapEntity *heap_entity() const;
 };
 
-struct Symbol {
+class Symbol {
   const std::string *ptr;
 
-  Symbol(const std::string *);
+  explicit Symbol(const std::string &);
 
-  const std::string &get_name() const;
+  friend class Runtime;
+  friend struct std::hash<Symbol>;
+
+public:
+  const std::string &name() const;
   bool operator==(Symbol other) const;
 };
 
@@ -123,7 +127,7 @@ public:
   Obj(Null);
   Obj(Void);
 
-  Type get_type() const;
+  Type type() const;
 
   bool is_bool() const;
   bool is_number() const;
@@ -151,7 +155,7 @@ public:
   Promise *as_promise() const;
   Error *as_error() const;
 
-  std::optional<HeapEntity *> heap_entity() const;
+  HeapEntity *heap_entity() const;
 
   bool is_true() const;
   bool is_false() const;
@@ -161,9 +165,9 @@ public:
 
   std::string to_write() const;
   std::string to_display() const;
-  std::string stringify_type() const;
+  std::string type_name() const;
 
-  ListProfile get_list_profile() const;
+  ListProfile list_profile() const;
   bool is_list() const;
 
   Obj car() const;
@@ -203,10 +207,10 @@ struct ListProfile {
   bool is_proper;
 };
 
-void trace_child(Obj obj, std::vector<HeapEntity *> *worklist);
+void trace_child(Obj obj, std::vector<HeapEntity *> &worklist);
 
 struct HeapEntity {
-  virtual void trace(std::vector<HeapEntity *> *) const {}
+  virtual void trace(std::vector<HeapEntity *> &) const {}
   virtual ~HeapEntity() = default;
 };
 
@@ -221,7 +225,7 @@ struct Cons : HeapEntity {
   Obj cdr;
 
   Cons(Obj car, Obj cdr);
-  void trace(std::vector<HeapEntity *> *) const override;
+  void trace(std::vector<HeapEntity *> &) const override;
 };
 
 struct Vector : HeapEntity {
@@ -229,11 +233,11 @@ struct Vector : HeapEntity {
 
   Vector(std::vector<Obj> data);
 
-  void trace(std::vector<HeapEntity *> *) const override;
+  void trace(std::vector<HeapEntity *> &) const override;
 };
 
 struct Builtin : HeapEntity {
-  using Fn = Obj (*)(const std::vector<Obj> &, Evaluator *);
+  using Fn = Obj (*)(const std::vector<Obj> &, Evaluator &);
   struct Apply {};
   using Implementation = std::variant<Fn, Apply>;
 
@@ -247,7 +251,7 @@ struct Formals {
   std::optional<Symbol> rest;
 
   static Formals parse(Obj formals);
-  void bind(Env *env, const std::vector<Obj> &args, Evaluator *evaluator) const;
+  void bind(Env &env, const std::vector<Obj> &args, Evaluator &evaluator) const;
 };
 
 enum class ProcedureKind { Function, Macro };
@@ -255,28 +259,28 @@ enum class ProcedureKind { Function, Macro };
 struct Procedure : HeapEntity {
   Formals formals;
   Obj body;
-  Env *env;
+  std::reference_wrapper<Env> env;
   ProcedureKind kind;
 
-  Procedure(Formals formals, Obj body, Env *env, ProcedureKind kind);
+  Procedure(Formals formals, Obj body, Env &env, ProcedureKind kind);
 
-  void trace(std::vector<HeapEntity *> *) const override;
+  void trace(std::vector<HeapEntity *> &) const override;
 };
 
 class Promise : public HeapEntity {
   struct Thunk {
     Obj body;
-    Env *env;
+    std::reference_wrapper<Env> env;
   };
 
   std::variant<Thunk, Obj> state;
 
 public:
-  Promise(Obj body, Env *env);
+  Promise(Obj body, Env &env);
 
-  Obj force(Evaluator *evaluator);
+  Obj force(Evaluator &evaluator);
 
-  void trace(std::vector<HeapEntity *> *) const override;
+  void trace(std::vector<HeapEntity *> &) const override;
 };
 
 struct Error : HeapEntity {
@@ -287,7 +291,7 @@ struct Error : HeapEntity {
 
   std::string describe() const;
 
-  void trace(std::vector<HeapEntity *> *) const override;
+  void trace(std::vector<HeapEntity *> &) const override;
 };
 
 struct SchemeError : std::runtime_error {
@@ -296,7 +300,7 @@ struct SchemeError : std::runtime_error {
   explicit SchemeError(const std::string &message);
   static SchemeError raised(Obj payload);
 
-  Obj as_condition(Evaluator *evaluator);
+  Obj as_condition(Evaluator &evaluator);
 };
 
 template <> struct std::hash<Symbol> {

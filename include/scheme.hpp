@@ -39,7 +39,7 @@ public:
   Session(const Session &) = delete;
   Session &operator=(const Session &) = delete;
 
-  RunResult run(std::string_view source, const Emit &emit);
+  [[nodiscard]] RunResult run(std::string_view source, const Emit &emit);
   void execute(std::string_view source, const Emit &emit);
 };
 

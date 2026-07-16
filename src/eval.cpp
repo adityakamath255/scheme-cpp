@@ -12,7 +12,7 @@ Evaluator::Evaluator(Runtime &runtime, const scheme::Emit &emit)
 
 Runtime &Evaluator::runtime() { return state; }
 
-Env *Evaluator::global_env() const { return state.global_env; }
+Env &Evaluator::global_env() const { return state.global_env; }
 
 Symbol Evaluator::intern(std::string_view name) { return state.intern(name); }
 
@@ -28,9 +28,9 @@ void Evaluator::result(std::string text) const {
   }
 }
 
-void Evaluator::recycle_if_needed() {
-  if (depth == 0 && state.should_recycle()) {
-    state.recycle();
+void Evaluator::collect_if_needed() {
+  if (depth == 0 && state.should_collect()) {
+    state.collect();
   }
 }
 
@@ -46,7 +46,7 @@ void Evaluator::pop() { depth -= 1; }
 
 struct TailCall {
   Obj expr;
-  Env *env;
+  std::reference_wrapper<Env> env;
 };
 
 using EvalResult = std::variant<Obj, TailCall>;
@@ -62,7 +62,7 @@ void check_arity(size_t count, std::string_view name, size_t min, size_t max) {
 
 static void check_arity(Obj rest, std::string_view name, size_t min,
                         size_t max) {
-  auto profile = rest.get_list_profile();
+  auto profile = rest.list_profile();
 
   if (!profile.is_proper) {
     throw SchemeError(std::format("{}: improper argument list", name));
@@ -71,9 +71,9 @@ static void check_arity(Obj rest, std::string_view name, size_t min,
   check_arity(profile.size, name, min, max);
 }
 
-static std::vector<Obj> eval_args(Obj list, Env *env, Evaluator *evaluator) {
+static std::vector<Obj> eval_args(Obj list, Env &env, Evaluator &evaluator) {
   return ListView{list} | std::views::transform([&](Obj arg) {
-           return evaluator->eval(arg, env);
+           return evaluator.eval(arg, env);
          }) |
          std::ranges::to<std::vector>();
 }
@@ -104,8 +104,8 @@ Formals Formals::parse(Obj formals) {
   }
 }
 
-void Formals::bind(Env *env, const std::vector<Obj> &args,
-                   Evaluator *evaluator) const {
+void Formals::bind(Env &env, const std::vector<Obj> &args,
+                   Evaluator &evaluator) const {
   if (args.size() < fixed.size()) {
     throw SchemeError("too few arguments");
   }
@@ -114,28 +114,28 @@ void Formals::bind(Env *env, const std::vector<Obj> &args,
   }
 
   for (size_t i = 0; i < fixed.size(); i += 1) {
-    env->define(fixed[i], args[i]);
+    env.define(fixed[i], args[i]);
   }
   if (rest) {
-    env->define(*rest,
+    env.define(*rest,
                 list_from(args | std::views::drop(fixed.size()), evaluator));
   }
 }
 
 static bool is_keyword(Obj obj, std::string_view name) {
-  return obj.is_symbol() && obj.as_symbol().get_name() == name;
+  return obj.is_symbol() && obj.as_symbol().name() == name;
 }
 
-static Obj wrap_body(Obj body_list, Evaluator *evaluator) {
+static Obj wrap_body(Obj body_list, Evaluator &evaluator) {
   if (body_list.cdr().is_null()) {
     return body_list.car();
   }
-  return evaluator->alloc<Cons>(evaluator->intern("begin"), body_list);
+  return evaluator.alloc<Cons>(evaluator.intern("begin"), body_list);
 }
 
-static EvalResult eval_body(Obj list, Env *env, Evaluator *evaluator) {
+static EvalResult eval_body(Obj list, Env &env, Evaluator &evaluator) {
   while (list.cdr().is_cons()) {
-    evaluator->eval(list.car(), env);
+    evaluator.eval(list.car(), env);
     list = list.cdr();
   }
   return TailCall{list.car(), env};
@@ -158,11 +158,11 @@ splice_apply(const std::vector<Obj> &args) {
 }
 
 static EvalResult apply_procedure(Obj proc, std::vector<Obj> args,
-                                  Evaluator *evaluator) {
+                                  Evaluator &evaluator) {
   while (true) {
     if (proc.is_procedure()) {
       Procedure *p = proc.as_procedure();
-      Env *new_env = evaluator->alloc<LocalEnv>(p->env);
+      Env &new_env = *evaluator.alloc<LocalEnv>(p->env.get());
       p->formals.bind(new_env, args, evaluator);
       return TailCall{p->body, new_env};
     }
@@ -183,14 +183,14 @@ static EvalResult apply_procedure(Obj proc, std::vector<Obj> args,
   }
 }
 
-static Obj eval_quasiquote(Obj obj, Env *env, Evaluator *evaluator) {
+static Obj eval_quasiquote(Obj obj, Env &env, Evaluator &evaluator) {
   if (obj.is_vector()) {
     auto vec = obj.as_vector();
     std::vector<Obj> elements;
     for (auto elem : vec->data) {
       elements.push_back(eval_quasiquote(elem, env, evaluator));
     }
-    return evaluator->alloc<Vector>(std::move(elements));
+    return evaluator.alloc<Vector>(std::move(elements));
   }
 
   else if (!obj.is_cons()) {
@@ -198,7 +198,7 @@ static Obj eval_quasiquote(Obj obj, Env *env, Evaluator *evaluator) {
   }
 
   else if (is_keyword(obj.car(), "unquote")) {
-    return evaluator->eval(obj.cdr().car(), env);
+    return evaluator.eval(obj.cdr().car(), env);
   }
 
   else {
@@ -207,7 +207,7 @@ static Obj eval_quasiquote(Obj obj, Env *env, Evaluator *evaluator) {
 
     for (Obj elem : items) {
       if (elem.is_cons() && is_keyword(elem.car(), "unquote-splicing")) {
-        elements.append_range(ListView{evaluator->eval(elem.cdr().car(), env)});
+        elements.append_range(ListView{evaluator.eval(elem.cdr().car(), env)});
       } else {
         elements.push_back(eval_quasiquote(elem, env, evaluator));
       }
@@ -225,9 +225,9 @@ static EvalResult eval_quote(Obj rest) {
   return rest.car();
 }
 
-static EvalResult eval_if(Obj rest, Env *env, Evaluator *evaluator) {
+static EvalResult eval_if(Obj rest, Env &env, Evaluator &evaluator) {
   check_arity(rest, "if", 2, 3);
-  Obj pred = evaluator->eval(rest.car(), env);
+  Obj pred = evaluator.eval(rest.car(), env);
 
   if (pred.is_true()) {
     return TailCall{rest.cdr().car(), env};
@@ -242,7 +242,7 @@ static EvalResult eval_if(Obj rest, Env *env, Evaluator *evaluator) {
   }
 }
 
-static EvalResult eval_define(Obj rest, Env *env, Evaluator *evaluator) {
+static EvalResult eval_define(Obj rest, Env &env, Evaluator &evaluator) {
   check_arity(rest, "define", 1, SIZE_MAX);
   Obj target = rest.car();
 
@@ -250,8 +250,8 @@ static EvalResult eval_define(Obj rest, Env *env, Evaluator *evaluator) {
     Symbol fname = target.car().as_symbol();
     Obj body = wrap_body(rest.cdr(), evaluator);
 
-    env->define(fname,
-                evaluator->alloc<Procedure>(Formals::parse(target.cdr()), body,
+    env.define(fname,
+                evaluator.alloc<Procedure>(Formals::parse(target.cdr()), body,
                                             env, ProcedureKind::Function));
 
     return Obj(Void{});
@@ -261,21 +261,21 @@ static EvalResult eval_define(Obj rest, Env *env, Evaluator *evaluator) {
     Symbol sym = target.as_symbol();
 
     if (rest.cdr().is_null()) {
-      env->define(sym, Void{});
+      env.define(sym, Void{});
     } else {
       check_arity(rest, "define", 2, 2);
-      env->define(sym, evaluator->eval(rest.cdr().car(), env));
+      env.define(sym, evaluator.eval(rest.cdr().car(), env));
     }
     return Obj(Void{});
   }
 
   else {
     throw SchemeError("define: expected symbol or list, got " +
-                      target.stringify_type());
+                      target.type_name());
   }
 }
 
-static EvalResult eval_define_macro(Obj rest, Env *env, Evaluator *evaluator) {
+static EvalResult eval_define_macro(Obj rest, Env &env, Evaluator &evaluator) {
   check_arity(rest, "define-macro", 2, SIZE_MAX);
   Obj target = rest.car();
 
@@ -283,14 +283,14 @@ static EvalResult eval_define_macro(Obj rest, Env *env, Evaluator *evaluator) {
     Symbol name = target.car().as_symbol();
     Obj body = wrap_body(rest.cdr(), evaluator);
 
-    env->define(name,
-                evaluator->alloc<Procedure>(Formals::parse(target.cdr()), body,
+    env.define(name,
+                evaluator.alloc<Procedure>(Formals::parse(target.cdr()), body,
                                             env, ProcedureKind::Macro));
   }
 
   else if (target.is_symbol()) {
     check_arity(rest, "define-macro", 2, 2);
-    Obj val = evaluator->eval(rest.cdr().car(), env);
+    Obj val = evaluator.eval(rest.cdr().car(), env);
 
     if (!val.is_procedure()) {
       throw SchemeError("define-macro: expected procedure");
@@ -298,8 +298,8 @@ static EvalResult eval_define_macro(Obj rest, Env *env, Evaluator *evaluator) {
 
     Procedure *p = val.as_procedure();
 
-    env->define(target.as_symbol(),
-                evaluator->alloc<Procedure>(p->formals, p->body, p->env,
+    env.define(target.as_symbol(),
+                evaluator.alloc<Procedure>(p->formals, p->body, p->env.get(),
                                             ProcedureKind::Macro));
   }
 
@@ -310,29 +310,29 @@ static EvalResult eval_define_macro(Obj rest, Env *env, Evaluator *evaluator) {
   return Obj(Void{});
 }
 
-static EvalResult eval_set(Obj rest, Env *env, Evaluator *evaluator) {
+static EvalResult eval_set(Obj rest, Env &env, Evaluator &evaluator) {
   check_arity(rest, "set!", 2, 2);
   if (!rest.car().is_symbol()) {
     throw SchemeError("set!: expected symbol, got " +
-                      rest.car().stringify_type());
+                      rest.car().type_name());
   }
   Symbol sym = rest.car().as_symbol();
-  Obj val = evaluator->eval(rest.cdr().car(), env);
-  if (!env->set(sym, val)) {
-    throw SchemeError("set!: undefined variable " + sym.get_name());
+  Obj val = evaluator.eval(rest.cdr().car(), env);
+  if (!env.set(sym, val)) {
+    throw SchemeError("set!: undefined variable " + sym.name());
   }
 
   return Obj(Void{});
 }
 
-static EvalResult eval_lambda(Obj rest, Env *env, Evaluator *evaluator) {
+static EvalResult eval_lambda(Obj rest, Env &env, Evaluator &evaluator) {
   check_arity(rest, "lambda", 2, SIZE_MAX);
   Obj body = wrap_body(rest.cdr(), evaluator);
-  return Obj(evaluator->alloc<Procedure>(Formals::parse(rest.car()), body, env,
+  return Obj(evaluator.alloc<Procedure>(Formals::parse(rest.car()), body, env,
                                          ProcedureKind::Function));
 }
 
-static EvalResult eval_begin(Obj rest, Env *env, Evaluator *evaluator) {
+static EvalResult eval_begin(Obj rest, Env &env, Evaluator &evaluator) {
   if (rest.is_null()) {
     return Obj(Void{});
   } else {
@@ -342,7 +342,7 @@ static EvalResult eval_begin(Obj rest, Env *env, Evaluator *evaluator) {
 
 enum class LetKind { Plain, Star, Rec };
 
-static EvalResult eval_let(Obj rest, Env *env, Evaluator *evaluator,
+static EvalResult eval_let(Obj rest, Env &env, Evaluator &evaluator,
                            LetKind kind) {
   const char *name = kind == LetKind::Star  ? "let*"
                      : kind == LetKind::Rec ? "letrec"
@@ -350,36 +350,36 @@ static EvalResult eval_let(Obj rest, Env *env, Evaluator *evaluator,
   check_arity(rest, name, 2, SIZE_MAX);
   Obj bindings = rest.car();
   Obj body_list = rest.cdr();
-  Env *new_env = evaluator->alloc<LocalEnv>(env);
+  Env &new_env = *evaluator.alloc<LocalEnv>(env);
 
   if (kind == LetKind::Rec) {
     for (Obj binding : ListView{bindings}) {
       if (!binding.car().is_symbol()) {
         throw SchemeError("letrec: binding name must be a symbol");
       }
-      new_env->define(binding.car().as_symbol(), Void{});
+      new_env.define(binding.car().as_symbol(), Void{});
     }
   }
 
-  Env *init_env = kind == LetKind::Plain ? env : new_env;
+  Env &init_env = kind == LetKind::Plain ? env : new_env;
 
   for (Obj binding : ListView{bindings}) {
     if (!binding.car().is_symbol()) {
       throw SchemeError(std::string(name) + ": binding name must be a symbol");
     }
     Symbol sym = binding.car().as_symbol();
-    Obj val = evaluator->eval(binding.cdr().car(), init_env);
+    Obj val = evaluator.eval(binding.cdr().car(), init_env);
     if (kind == LetKind::Rec) {
-      new_env->set(sym, val);
+      new_env.set(sym, val);
     } else {
-      new_env->define(sym, val);
+      new_env.define(sym, val);
     }
   }
 
   return eval_body(body_list, new_env, evaluator);
 }
 
-static EvalResult eval_named_let(Obj rest, Env *env, Evaluator *evaluator) {
+static EvalResult eval_named_let(Obj rest, Env &env, Evaluator &evaluator) {
   Symbol name = rest.car().as_symbol();
   Obj spec = rest.cdr();
   check_arity(spec, "let", 2, SIZE_MAX);
@@ -393,16 +393,16 @@ static EvalResult eval_named_let(Obj rest, Env *env, Evaluator *evaluator) {
       throw SchemeError("let: binding name must be a symbol");
     }
     params.push_back(binding.car().as_symbol());
-    args.push_back(evaluator->eval(binding.cdr().car(), env));
+    args.push_back(evaluator.eval(binding.cdr().car(), env));
   }
 
-  Env *loop_env = evaluator->alloc<LocalEnv>(env);
+  Env &loop_env = *evaluator.alloc<LocalEnv>(env);
   Procedure *proc =
-      evaluator->alloc<Procedure>(Formals{std::move(params), std::nullopt},
+      evaluator.alloc<Procedure>(Formals{std::move(params), std::nullopt},
                                   body, loop_env, ProcedureKind::Function);
-  loop_env->define(name, proc);
+  loop_env.define(name, proc);
 
-  Env *call_env = evaluator->alloc<LocalEnv>(loop_env);
+  Env &call_env = *evaluator.alloc<LocalEnv>(loop_env);
   proc->formals.bind(call_env, args, evaluator);
   return TailCall{proc->body, call_env};
 }
@@ -412,11 +412,11 @@ enum class ConditionalKind {
   Unless,
 };
 
-static EvalResult eval_conditional(Obj rest, Env *env, Evaluator *evaluator,
+static EvalResult eval_conditional(Obj rest, Env &env, Evaluator &evaluator,
                                    ConditionalKind kind) {
   bool is_unless = kind == ConditionalKind::Unless;
   check_arity(rest, is_unless ? "unless" : "when", 1, SIZE_MAX);
-  Obj test = evaluator->eval(rest.car(), env);
+  Obj test = evaluator.eval(rest.car(), env);
   bool go = is_unless ? test.is_false() : test.is_true();
   Obj body = rest.cdr();
 
@@ -451,8 +451,8 @@ eval_clauses(Obj clauses, std::string_view name, Match match) {
   return std::nullopt;
 }
 
-static std::optional<EvalResult> try_cond(Obj clauses, Env *env,
-                                          Evaluator *evaluator) {
+static std::optional<EvalResult> try_cond(Obj clauses, Env &env,
+                                          Evaluator &evaluator) {
   return eval_clauses(
       clauses, "cond",
       [&](Obj clause, bool is_else) -> std::optional<EvalResult> {
@@ -469,7 +469,7 @@ static std::optional<EvalResult> try_cond(Obj clauses, Env *env,
           throw SchemeError("cond: expected one receiver after =>");
         }
 
-        Obj test_val = is_else ? Obj(true) : evaluator->eval(clause.car(), env);
+        Obj test_val = is_else ? Obj(true) : evaluator.eval(clause.car(), env);
         if (!is_else && test_val.is_false()) {
           return std::nullopt;
         }
@@ -478,20 +478,20 @@ static std::optional<EvalResult> try_cond(Obj clauses, Env *env,
           return EvalResult{test_val};
         }
         if (is_arrow) {
-          Obj receiver = evaluator->eval(body.cdr().car(), env);
+          Obj receiver = evaluator.eval(body.cdr().car(), env);
           return apply_procedure(receiver, {test_val}, evaluator);
         }
         return eval_body(body, env, evaluator);
       });
 }
 
-static EvalResult eval_cond(Obj clauses, Env *env, Evaluator *evaluator) {
+static EvalResult eval_cond(Obj clauses, Env &env, Evaluator &evaluator) {
   return try_cond(clauses, env, evaluator).value_or(EvalResult{Obj(Void{})});
 }
 
-static EvalResult eval_case(Obj rest, Env *env, Evaluator *evaluator) {
+static EvalResult eval_case(Obj rest, Env &env, Evaluator &evaluator) {
   check_arity(rest, "case", 1, SIZE_MAX);
-  Obj key = evaluator->eval(rest.car(), env);
+  Obj key = evaluator.eval(rest.car(), env);
 
   return eval_clauses(
              rest.cdr(), "case",
@@ -519,14 +519,14 @@ enum class LogicalKind {
   Or,
 };
 
-static EvalResult eval_logical(Obj rest, Env *env, Evaluator *evaluator,
+static EvalResult eval_logical(Obj rest, Env &env, Evaluator &evaluator,
                                LogicalKind kind) {
   bool conjunction = kind == LogicalKind::And;
   if (rest.is_null()) {
     return Obj(conjunction);
   }
   while (rest.cdr().is_cons()) {
-    Obj val = evaluator->eval(rest.car(), env);
+    Obj val = evaluator.eval(rest.car(), env);
     if (val.is_true() != conjunction) {
       return val;
     }
@@ -535,7 +535,7 @@ static EvalResult eval_logical(Obj rest, Env *env, Evaluator *evaluator,
   return TailCall{rest.car(), env};
 }
 
-static EvalResult eval_guard(Obj rest, Env *env, Evaluator *evaluator) {
+static EvalResult eval_guard(Obj rest, Env &env, Evaluator &evaluator) {
   check_arity(rest, "guard", 2, SIZE_MAX);
   Obj spec = rest.car();
 
@@ -545,13 +545,13 @@ static EvalResult eval_guard(Obj rest, Env *env, Evaluator *evaluator) {
 
   std::optional<SchemeError> caught;
   try {
-    return evaluator->eval(wrap_body(rest.cdr(), evaluator), env);
+    return evaluator.eval(wrap_body(rest.cdr(), evaluator), env);
   } catch (SchemeError &e) {
     caught = std::move(e);
   }
 
-  Env *handler_env = evaluator->alloc<LocalEnv>(env);
-  handler_env->define(spec.car().as_symbol(), caught->as_condition(evaluator));
+  Env &handler_env = *evaluator.alloc<LocalEnv>(env);
+  handler_env.define(spec.car().as_symbol(), caught->as_condition(evaluator));
 
   if (auto handled = try_cond(spec.cdr(), handler_env, evaluator)) {
     return *handled;
@@ -559,67 +559,67 @@ static EvalResult eval_guard(Obj rest, Env *env, Evaluator *evaluator) {
   throw *caught;
 }
 
-static EvalResult eval_delay(Obj rest, Env *env, Evaluator *evaluator) {
+static EvalResult eval_delay(Obj rest, Env &env, Evaluator &evaluator) {
   check_arity(rest, "delay", 1, 1);
-  return Obj(evaluator->alloc<Promise>(rest.car(), env));
+  return Obj(evaluator.alloc<Promise>(rest.car(), env));
 }
 
-static EvalResult eval_cons_stream(Obj rest, Env *env, Evaluator *evaluator) {
+static EvalResult eval_cons_stream(Obj rest, Env &env, Evaluator &evaluator) {
   check_arity(rest, "cons-stream", 2, 2);
-  Obj head = evaluator->eval(rest.car(), env);
-  return Obj(evaluator->alloc<Cons>(
-      head, evaluator->alloc<Promise>(rest.cdr().car(), env)));
+  Obj head = evaluator.eval(rest.car(), env);
+  return Obj(evaluator.alloc<Cons>(
+      head, evaluator.alloc<Promise>(rest.cdr().car(), env)));
 }
 
-static EvalResult eval_quasiquote_form(Obj rest, Env *env,
-                                       Evaluator *evaluator) {
+static EvalResult eval_quasiquote_form(Obj rest, Env &env,
+                                       Evaluator &evaluator) {
   check_arity(rest, "quasiquote", 1, 1);
   return eval_quasiquote(rest.car(), env, evaluator);
 }
 
-static EvalResult eval_apply(Obj head, Obj rest, Env *env,
-                             Evaluator *evaluator) {
-  Obj proc = evaluator->eval(head, env);
+static EvalResult eval_apply(Obj head, Obj rest, Env &env,
+                             Evaluator &evaluator) {
+  Obj proc = evaluator.eval(head, env);
   return apply_procedure(proc, eval_args(rest, env, evaluator), evaluator);
 }
 
-static EvalResult eval_let_form(Obj rest, Env *env, Evaluator *evaluator) {
+static EvalResult eval_let_form(Obj rest, Env &env, Evaluator &evaluator) {
   if (rest.is_cons() && rest.car().is_symbol()) {
     return eval_named_let(rest, env, evaluator);
   }
   return eval_let(rest, env, evaluator, LetKind::Plain);
 }
 
-using SpecialForm = EvalResult (*)(Obj rest, Env *env, Evaluator *evaluator);
+using SpecialForm = EvalResult (*)(Obj rest, Env &env, Evaluator &evaluator);
 
 static const std::unordered_map<std::string_view, SpecialForm> special_forms = {
-    {"quote", [](Obj r, Env *, Evaluator *) { return eval_quote(r); }},
+    {"quote", [](Obj r, Env &, Evaluator &) { return eval_quote(r); }},
     {"if", eval_if},
     {"define", eval_define},
     {"set!", eval_set},
     {"lambda", eval_lambda},
     {"begin", eval_begin},
     {"let", eval_let_form},
-    {"let*", [](Obj r, Env *e,
-                Evaluator *c) { return eval_let(r, e, c, LetKind::Star); }},
-    {"letrec", [](Obj r, Env *e,
-                  Evaluator *c) { return eval_let(r, e, c, LetKind::Rec); }},
+    {"let*", [](Obj r, Env &e,
+                Evaluator &c) { return eval_let(r, e, c, LetKind::Star); }},
+    {"letrec", [](Obj r, Env &e,
+                  Evaluator &c) { return eval_let(r, e, c, LetKind::Rec); }},
     {"when",
-     [](Obj r, Env *e, Evaluator *c) {
+     [](Obj r, Env &e, Evaluator &c) {
        return eval_conditional(r, e, c, ConditionalKind::When);
      }},
     {"unless",
-     [](Obj r, Env *e, Evaluator *c) {
+     [](Obj r, Env &e, Evaluator &c) {
        return eval_conditional(r, e, c, ConditionalKind::Unless);
      }},
     {"case", eval_case},
     {"cond", eval_cond},
     {"and",
-     [](Obj r, Env *e, Evaluator *c) {
+     [](Obj r, Env &e, Evaluator &c) {
        return eval_logical(r, e, c, LogicalKind::And);
      }},
-    {"or", [](Obj r, Env *e,
-              Evaluator *c) { return eval_logical(r, e, c, LogicalKind::Or); }},
+    {"or", [](Obj r, Env &e,
+              Evaluator &c) { return eval_logical(r, e, c, LogicalKind::Or); }},
     {"quasiquote", eval_quasiquote_form},
     {"guard", eval_guard},
     {"delay", eval_delay},
@@ -627,16 +627,16 @@ static const std::unordered_map<std::string_view, SpecialForm> special_forms = {
     {"define-macro", eval_define_macro},
 };
 
-static EvalResult eval_expr(Obj expr, Env *env, Evaluator *evaluator) {
+static EvalResult eval_expr(Obj expr, Env &env, Evaluator &evaluator) {
   if (!expr.is_symbol() && !expr.is_cons()) {
     return expr;
   }
 
   else if (expr.is_symbol()) {
-    auto result = env->lookup(expr.as_symbol());
+    auto result = env.lookup(expr.as_symbol());
 
     if (!result) {
-      throw SchemeError("undefined variable: " + expr.as_symbol().get_name());
+      throw SchemeError("undefined variable: " + expr.as_symbol().name());
     }
 
     return *result;
@@ -649,21 +649,21 @@ static EvalResult eval_expr(Obj expr, Env *env, Evaluator *evaluator) {
     if (head.is_symbol()) {
       Symbol sym = head.as_symbol();
 
-      if (auto it = special_forms.find(sym.get_name());
+      if (auto it = special_forms.find(sym.name());
           it != special_forms.end()) {
         return it->second(rest, env, evaluator);
       }
 
-      auto macro_val = env->lookup(sym);
+      auto macro_val = env.lookup(sym);
 
       if (macro_val && macro_val->is_procedure() &&
           macro_val->as_procedure()->kind == ProcedureKind::Macro) {
         Procedure *p = macro_val->as_procedure();
         std::vector<Obj> raw_args =
             std::ranges::to<std::vector>(ListView{rest});
-        Env *macro_env = evaluator->alloc<LocalEnv>(p->env);
+        Env &macro_env = *evaluator.alloc<LocalEnv>(p->env.get());
         p->formals.bind(macro_env, raw_args, evaluator);
-        Obj expanded = evaluator->eval(p->body, macro_env);
+        Obj expanded = evaluator.eval(p->body, macro_env);
         return TailCall{expanded, env};
       }
     }
@@ -673,20 +673,20 @@ static EvalResult eval_expr(Obj expr, Env *env, Evaluator *evaluator) {
 }
 
 struct EvalFrame {
-  Evaluator *evaluator;
-  EvalFrame(Evaluator *evaluator) : evaluator{evaluator} {
-    if (!evaluator->push()) {
+  Evaluator &evaluator;
+  EvalFrame(Evaluator &evaluator) : evaluator{evaluator} {
+    if (!evaluator.push()) {
       throw SchemeError("recursion too deep");
     }
   }
-  ~EvalFrame() { evaluator->pop(); }
+  ~EvalFrame() { evaluator.pop(); }
 };
 
-Obj Evaluator::eval(Obj expr, Env *env) {
-  EvalFrame frame{this};
-  EvalResult result = eval_expr(expr, env, this);
+Obj Evaluator::eval(Obj expr, Env &env) {
+  EvalFrame frame{*this};
+  EvalResult result = eval_expr(expr, env, *this);
   while (auto *tc = std::get_if<TailCall>(&result)) {
-    result = eval_expr(tc->expr, tc->env, this);
+    result = eval_expr(tc->expr, tc->env.get(), *this);
   }
   return std::get<Obj>(result);
 }

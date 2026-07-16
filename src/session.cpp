@@ -12,7 +12,7 @@ public:
   Runtime runtime;
 
   Impl() {
-    install_builtins(&runtime);
+    install_builtins(runtime);
     const Emit ignore;
     Evaluator evaluator {runtime, ignore};
     evaluator.execute(

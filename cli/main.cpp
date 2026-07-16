@@ -25,7 +25,7 @@ static void print_batch_event(const scheme::Event &event) {
   }
 }
 
-static void repl(scheme::Session *session) {
+static void repl(scheme::Session &session) {
   replxx::Replxx rx;
   rx.set_max_history_size(1024);
   rx.set_word_break_characters(" \t\r\n()[]'\";");
@@ -45,7 +45,7 @@ static void repl(scheme::Session *session) {
 
   while (true) {
     try {
-      auto result = session->run(input, print_repl_event);
+      auto result = session.run(input, print_repl_event);
       input.erase(0, result.consumed);
       incomplete = result.incomplete;
       if (!incomplete) {
@@ -128,6 +128,6 @@ int main(int argc, char *argv[]) {
 
   if (interactive || (!filename && isatty(STDIN_FILENO))) {
     std::cout << "Scheme - Ctrl+D to exit, Ctrl+C to clear\n\n";
-    repl(&session);
+    repl(session);
   }
 }

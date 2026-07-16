@@ -22,7 +22,7 @@ public:
   Evaluator(Runtime &, const scheme::Emit &);
 
   Runtime &runtime();
-  Env *global_env() const;
+  Env &global_env() const;
   Symbol intern(std::string_view);
 
   template<typename T, typename... Args>
@@ -35,9 +35,9 @@ public:
 
   scheme::RunResult run(std::string_view source, ResultMode);
   void execute(std::string_view source, ResultMode);
-  Obj eval(Obj expression, Env *environment);
+  Obj eval(Obj expression, Env &environment);
 
-  void recycle_if_needed();
+  void collect_if_needed();
   bool push();
   void pop();
 };

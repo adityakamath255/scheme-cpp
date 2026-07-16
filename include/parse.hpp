@@ -5,4 +5,4 @@
 
 class Runtime;
 
-Obj parse(const std::vector<Token> &, Runtime *);
+Obj parse(const std::vector<Token> &, Runtime &);

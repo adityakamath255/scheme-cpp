@@ -28,13 +28,13 @@ bool GlobalEnv::set(Symbol sym, Obj obj) {
   }
 }
 
-void GlobalEnv::trace(std::vector<HeapEntity *> *worklist) const {
+void GlobalEnv::trace(std::vector<HeapEntity *> &worklist) const {
   for (const auto &[_, obj] : bindings) {
     trace_child(obj, worklist);
   }
 }
 
-LocalEnv::LocalEnv(Env *parent): bindings {}, parent {parent} {}
+LocalEnv::LocalEnv(Env &parent): bindings {}, parent {parent} {}
 
 std::optional<Obj> LocalEnv::lookup(Symbol sym) const {
   for (const auto &[k, v] : bindings) {
@@ -42,7 +42,7 @@ std::optional<Obj> LocalEnv::lookup(Symbol sym) const {
       return v;
     }
   }
-  return parent->lookup(sym);
+  return parent.get().lookup(sym);
 }
 
 void LocalEnv::define(Symbol sym, Obj obj) {
@@ -62,12 +62,12 @@ bool LocalEnv::set(Symbol sym, Obj obj) {
       return true;
     }
   }
-  return parent->set(sym, obj);
+  return parent.get().set(sym, obj);
 }
 
-void LocalEnv::trace(std::vector<HeapEntity *> *worklist) const {
+void LocalEnv::trace(std::vector<HeapEntity *> &worklist) const {
   for (const auto &[_, obj] : bindings) {
     trace_child(obj, worklist);
   }
-  worklist->push_back(parent);
+  worklist.push_back(&parent.get());
 }

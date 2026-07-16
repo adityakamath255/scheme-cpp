@@ -1,5 +1,6 @@
 #pragma once
 #include "types.hpp"
+#include <functional>
 #include <optional>
 #include <unordered_map>
 #include <utility>
@@ -22,19 +23,19 @@ public:
   void define(Symbol name, Obj value) override;
   bool set(Symbol name, Obj value) override;
 
-  void trace(std::vector<HeapEntity *> *) const override;
+  void trace(std::vector<HeapEntity *> &) const override;
 };
 
 class LocalEnv : public Env {
   std::vector<std::pair<Symbol, Obj>> bindings;
-  Env *parent;
+  std::reference_wrapper<Env> parent;
 
 public:
-  LocalEnv(Env *);
+  LocalEnv(Env &);
 
   std::optional<Obj> lookup(Symbol name) const override;
   void define(Symbol name, Obj value) override;
   bool set(Symbol name, Obj value) override;
 
-  void trace(std::vector<HeapEntity *> *) const override;
+  void trace(std::vector<HeapEntity *> &) const override;
 };

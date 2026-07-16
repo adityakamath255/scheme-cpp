@@ -4,7 +4,7 @@ Runtime::Runtime():
   live {},
   interned {},
   gc_threshold {1024},
-  global_env {alloc<GlobalEnv>()}
+  global_env {*alloc<GlobalEnv>()}
 {}
 
 Runtime::~Runtime() {
@@ -15,24 +15,24 @@ Runtime::~Runtime() {
 
 Symbol Runtime::intern(std::string_view name) {
   auto [it, _] = interned.insert(std::string(name));
-  return Symbol{&*it};
+  return Symbol{*it};
 }
 
-bool Runtime::should_recycle() const {
+bool Runtime::should_collect() const {
   return live.size() > gc_threshold;
 }
 
-void Runtime::recycle() {
+void Runtime::collect() {
   std::vector<HeapEntity *> worklist;
   std::unordered_set<HeapEntity *> marked;
-  worklist.push_back(global_env);
+  worklist.push_back(&global_env);
 
   while (!worklist.empty()) {
     HeapEntity *entity = worklist.back();
     worklist.pop_back();
 
     if (marked.insert(entity).second) {
-      entity->trace(&worklist);
+      entity->trace(worklist);
     }
   }
 

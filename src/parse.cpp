@@ -43,7 +43,7 @@ static std::string process_escapes(std::string_view raw) {
 class Parser {
   const std::vector<Token> &tokens;
   size_t index;
-  Runtime *runtime;
+  Runtime &runtime;
 
   bool match(Token::Type type) {
     if (index < tokens.size() && tokens[index].type == type) {
@@ -89,16 +89,16 @@ class Parser {
       return parse_list();
 
     case Token::QUOTE:
-      return parse_quoted(runtime->intern("quote"));
+      return parse_quoted(runtime.intern("quote"));
 
     case Token::BACKTICK:
-      return parse_quoted(runtime->intern("quasiquote"));
+      return parse_quoted(runtime.intern("quasiquote"));
 
     case Token::COMMA:
-      return parse_quoted(runtime->intern("unquote"));
+      return parse_quoted(runtime.intern("unquote"));
 
     case Token::SPLICE_COMMA:
-      return parse_quoted(runtime->intern("unquote-splicing"));
+      return parse_quoted(runtime.intern("unquote-splicing"));
 
     case Token::TRUE:
       return true;
@@ -114,11 +114,11 @@ class Parser {
 
     case Token::STRING: {
       auto str = process_escapes(tok.lexeme);
-      return runtime->alloc<String>(std::move(str));
+      return runtime.alloc<String>(std::move(str));
     }
 
     case Token::SYMBOL:
-      return runtime->intern(tok.lexeme);
+      return runtime.intern(tok.lexeme);
 
     case Token::VEC_BEGIN: {
       std::vector<Obj> elements;
@@ -126,7 +126,7 @@ class Parser {
         auto obj = parse_expr();
         elements.push_back(obj);
       }
-      return runtime->alloc<Vector>(std::move(elements));
+      return runtime.alloc<Vector>(std::move(elements));
     }
 
     case Token::CHAR: {
@@ -151,7 +151,7 @@ class Parser {
   }
 
 public:
-  Parser(const std::vector<Token> &tokens, Runtime *runtime)
+  Parser(const std::vector<Token> &tokens, Runtime &runtime)
       : tokens{tokens}, index{0}, runtime{runtime} {}
 
   Obj parse() {
@@ -160,6 +160,6 @@ public:
   }
 };
 
-Obj parse(const std::vector<Token> &tokens, Runtime *runtime) {
+Obj parse(const std::vector<Token> &tokens, Runtime &runtime) {
   return Parser(tokens, runtime).parse();
 }

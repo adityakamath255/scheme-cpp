@@ -26,9 +26,9 @@ scheme::RunResult Evaluator::run(
       };
     }
 
-    recycle_if_needed();
+    collect_if_needed();
 
-    Obj expression = parse(read->tokens, &state);
+    Obj expression = parse(read->tokens, state);
     Obj value = eval(expression, state.global_env);
 
     if (result_mode == ResultMode::Emit && !value.is_void()) {

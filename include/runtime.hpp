@@ -17,8 +17,8 @@ class Runtime {
   std::unordered_set<std::string> interned;
   size_t gc_threshold;
 
-  bool should_recycle() const;
-  void recycle();
+  bool should_collect() const;
+  void collect();
 
   friend class Evaluator;
 
@@ -29,7 +29,7 @@ public:
   Runtime(const Runtime &) = delete;
   Runtime &operator=(const Runtime &) = delete;
 
-  Env *const global_env;
+  Env &global_env;
 
   Symbol intern(std::string_view);
 
@@ -42,11 +42,11 @@ public:
 };
 
 template<std::ranges::bidirectional_range R, typename Allocator>
-Obj list_from(R &&elems, Allocator *allocator, Obj tail = Null{}) {
+Obj list_from(R &&elems, Allocator &allocator, Obj tail = Null{}) {
   return std::ranges::fold_left(
     std::forward<R>(elems) | std::views::reverse, tail,
-    [allocator](Obj acc, Obj elem) -> Obj {
-      return allocator->template alloc<Cons>(elem, acc);
+    [&allocator](Obj acc, Obj elem) -> Obj {
+      return allocator.template alloc<Cons>(elem, acc);
     }
   );
 }
