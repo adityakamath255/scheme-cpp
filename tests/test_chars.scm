@@ -10,6 +10,10 @@
 
 (assert "char->integer" 97 (char->integer #\a))
 (assert "integer->char" #\a (integer->char 97))
+(assert "integer->char range" #t
+        (guard (e ((error-object? e) #t))
+          (integer->char (expt 2 100))
+          #f))
 
 (assert "string->list" (list #\h #\i) (string->list "hi"))
 (assert "list->string" "hi" (list->string (list #\h #\i)))

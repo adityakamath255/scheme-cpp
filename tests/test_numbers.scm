@@ -36,6 +36,14 @@
 (assert "exact * inexact -> inexact" "6.0" (number->string (* 2 3.0)))
 (assert "bignum + inexact -> inexact" #t
         (eqv? (+ (expt 10 20) 0.0) 1e20))
+(assert "positive infinity string" "+inf.0" (number->string +inf.0))
+(assert "negative infinity string" "-inf.0" (number->string -inf.0))
+(assert "nan string" "+nan.0" (number->string +nan.0))
+(assert "negative nan string" "-nan.0" (number->string -nan.0))
+(assert "infinity string roundtrip" "+inf.0"
+        (number->string (string->number (number->string +inf.0))))
+(assert "nan string roundtrip" "+nan.0"
+        (number->string (string->number (number->string +nan.0))))
 
 (assert "fixnum < bignum" #t (< 1000000 (expt 10 30)))
 (assert "bignum > fixnum" #t (> (expt 10 30) 999999999))

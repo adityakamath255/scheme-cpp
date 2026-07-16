@@ -14,6 +14,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <ranges>
 #include <sstream>
 #include <utility>
@@ -525,7 +526,11 @@ static Obj builtin_char_to_integer(const std::vector<Obj> &args,
 
 static Obj builtin_integer_to_char(const std::vector<Obj> &args, Evaluator *) {
   check_arity(args, "integer->char", 1, 1);
-  return static_cast<char>(as_index(args[0], "integer->char"));
+  size_t value = as_index(args[0], "integer->char");
+  if (value > std::numeric_limits<unsigned char>::max()) {
+    throw SchemeError("integer->char: value out of range");
+  }
+  return static_cast<char>(static_cast<unsigned char>(value));
 }
 
 static Obj builtin_string_to_list(const std::vector<Obj> &args,

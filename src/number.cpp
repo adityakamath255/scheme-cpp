@@ -380,6 +380,17 @@ bool Number::eqv(Number o) const {
 }
 
 Number Number::parse(std::string_view lexeme, Runtime *runtime) {
+  if (lexeme == "+inf.0") {
+    return inexact(std::numeric_limits<double>::infinity());
+  }
+  if (lexeme == "-inf.0") {
+    return inexact(-std::numeric_limits<double>::infinity());
+  }
+  if (lexeme == "+nan.0" || lexeme == "-nan.0") {
+    double nan = std::numeric_limits<double>::quiet_NaN();
+    return inexact(lexeme.front() == '-' ? -nan : nan);
+  }
+
   bool inexactp = lexeme.find_first_of(".eE") != std::string_view::npos;
   const char *begin = lexeme.data();
   const char *end = lexeme.data() + lexeme.size();
@@ -424,11 +435,15 @@ std::string Number::to_string() const {
       return s;
     },
     [](double d) -> std::string {
+      if (std::isnan(d)) {
+        return std::signbit(d) ? "-nan.0" : "+nan.0";
+      }
+      if (std::isinf(d)) {
+        return d < 0 ? "-inf.0" : "+inf.0";
+      }
+
       std::string s = std::format("{}", d);
-      if (
-        std::isfinite(d)
-        && s.find_first_of(".eEnN") == std::string::npos
-      ) {
+      if (s.find_first_of(".eE") == std::string::npos) {
         return s + ".0";
       }
       else {

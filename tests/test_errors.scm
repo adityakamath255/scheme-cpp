@@ -30,6 +30,8 @@
           (guard (e) (error "boom"))))
 
 (assert "native error caught" 'caught (guard (e (#t 'caught)) (car 5)))
+(assert "pair type name" "car: expected pair, got number"
+        (guard (e (#t (error-object-message e))) (car 5)))
 (assert "native error is error object" #t
         (guard (e (#t (error-object? e))) (vector-ref (vector) 0)))
 (assert "division by zero caught" "/: division by zero"

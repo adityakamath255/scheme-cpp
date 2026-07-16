@@ -2,7 +2,7 @@
 #include "runtime.hpp"
 #include <array>
 #include <cassert>
-#include <limits>
+#include <string>
 
 static std::string process_escapes(std::string_view raw) {
   std::string res;
@@ -107,14 +107,8 @@ class Parser {
       return false;
 
     case Token::PLUS_INF:
-      return std::numeric_limits<double>::infinity();
-
     case Token::MINUS_INF:
-      return -std::numeric_limits<double>::infinity();
-
     case Token::NAN_VAL:
-      return std::numeric_limits<double>::quiet_NaN();
-
     case Token::NUMBER:
       return Number::parse(tok.lexeme, runtime);
 
@@ -145,9 +139,10 @@ class Parser {
         return '\t';
       } else if (name == "return") {
         return '\r';
-      } else {
-        return name[0];
+      } else if (name.size() == 1) {
+        return name.front();
       }
+      throw SchemeError("unknown character name: " + std::string(name));
     }
 
     default:

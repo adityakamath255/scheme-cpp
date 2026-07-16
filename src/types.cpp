@@ -248,6 +248,9 @@ static std::string render(Obj obj, bool write) {
         case '\t':
           res += "\\t";
           break;
+        case '\r':
+          res += "\\r";
+          break;
         default:
           res += c;
           break;
@@ -268,17 +271,12 @@ static std::string render(Obj obj, bool write) {
     return "#(" + join_elems(obj.as_vector()->data, write) + ")";
 
   case Type::Procedure:
-    if (obj.as_procedure()->kind == ProcedureKind::Macro) {
-      return std::format("<macro at {}>",
-                         static_cast<const void *>(obj.as_procedure()));
-    } else {
-      return std::format("<procedure at {}>",
-                         static_cast<const void *>(obj.as_procedure()));
-    }
+    return obj.as_procedure()->kind == ProcedureKind::Macro
+      ? "#<macro>"
+      : "#<procedure>";
 
   case Type::Builtin:
-    return std::format("<procedure at {}>",
-                       static_cast<const void *>(obj.as_builtin()));
+    return "#<procedure>";
 
   case Type::Promise:
     return "#<promise>";
@@ -308,7 +306,7 @@ std::string Obj::stringify_type() const {
   case Type::String:
     return "string";
   case Type::Cons:
-    return "cons";
+    return "pair";
   case Type::Vector:
     return "vector";
   case Type::Procedure:
