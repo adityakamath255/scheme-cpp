@@ -1,4 +1,4 @@
-#include "scheme.hpp"
+#include "session.hpp"
 #include <replxx.hxx>
 #include <exception>
 #include <fstream>

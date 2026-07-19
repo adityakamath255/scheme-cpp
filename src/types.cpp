@@ -380,10 +380,6 @@ void trace_child(Obj obj, std::vector<HeapEntity *> &worklist) {
 
 Env::Env(Env *parent) : bindings{}, parent{parent} {}
 
-Env Env::global() { return Env{nullptr}; }
-
-Env Env::local(Env &parent) { return Env{&parent}; }
-
 std::optional<Obj> Env::lookup(Symbol name) const {
   auto binding = bindings.find(name);
   if (binding != bindings.end()) {

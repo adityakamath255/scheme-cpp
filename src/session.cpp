@@ -1,8 +1,9 @@
-#include "scheme.hpp"
+#include "session.hpp"
 
 #include "builtins.hpp"
 #include "eval.hpp"
 #include "preamble.hpp"
+#include "read.hpp"
 
 #include <memory>
 #include <stdexcept>
@@ -30,7 +31,7 @@ public:
 
 scheme::SessionState::SessionState()
     : live{}, interned{}, gc_threshold{1024},
-      global_env{Env::global()}, active{false} {}
+      global_env{}, active{false} {}
 
 std::unique_ptr<scheme::SessionState>
 scheme::SessionState::create() {
@@ -83,6 +84,45 @@ void scheme::SessionState::collect() {
   gc_threshold = live.size() * 2;
 }
 
+scheme::RunResult EvalContext::run(std::string_view source,
+                                   ResultMode result_mode) {
+  std::string_view remaining = source;
+
+  while (true) {
+    collect_if_needed();
+    ReadOutcome read = read_one(remaining, *this);
+
+    if (std::holds_alternative<ReadIncomplete>(read)) {
+      return {
+          .consumed = source.size() - remaining.size(),
+          .incomplete = true,
+      };
+    }
+
+    if (auto *end = std::get_if<ReadEnd>(&read)) {
+      return {
+          .consumed = source.size() - end->rest.size(),
+          .incomplete = false,
+      };
+    }
+
+    auto &datum = std::get<ReadDatum>(read);
+    Obj value = eval(datum.value, state.global_env);
+
+    if (result_mode == ResultMode::Emit && !value.is_void()) {
+      result(value.to_write());
+    }
+
+    remaining = datum.rest;
+  }
+}
+
+void EvalContext::execute(std::string_view source, ResultMode result_mode) {
+  if (run(source, result_mode).incomplete) {
+    throw SchemeError("unexpected end of input");
+  }
+}
+
 scheme::RunResult scheme::SessionState::run(
     std::string_view source, const Emit &emit) {
   ActiveSession guard{active};
@@ -100,10 +140,6 @@ void scheme::SessionState::execute(std::string_view source,
 scheme::Session::Session() : state{SessionState::create()} {}
 
 scheme::Session::~Session() = default;
-
-scheme::Session::Session(Session &&) noexcept = default;
-
-scheme::Session &scheme::Session::operator=(Session &&) noexcept = default;
 
 scheme::RunResult scheme::Session::run(
     std::string_view source,

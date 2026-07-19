@@ -251,15 +251,13 @@ The core interpreter lives in `src/`:
   special forms, emits output, and runs the tail call trampoline.
 - `builtins.cpp` - all built-in procedure implementations, registered as raw function pointers.
 - `preamble.cpp` - the standard library, stored as a string literal and evaluated at startup.
-- `source.cpp` - the `EvalContext` source loop. It reports how much input was
-  consumed, distinguishes incomplete input from completion, and runs GC
-  between top-level forms.
-- `session.cpp` - the public `scheme::Session` boundary and its private state.
+- `session.cpp` - the public `scheme::Session` boundary, its private state, and
+  the source execution loop.
   `SessionState` owns the managed heap, symbol table, global environment, and
   garbage collector. It initializes the interpreter and exposes incremental
   and strict execution.
 
-The two front-ends use `scheme::Session` through `include/scheme.hpp`:
+The two front-ends use `scheme::Session` through `include/session.hpp`:
 
 - `cli/main.cpp` - argument parsing, file execution, and the replxx REPL loop.
 - `web/main.cpp` - wraps `scheme::Session` with Embind (see [Web](#web)),

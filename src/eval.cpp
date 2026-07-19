@@ -167,7 +167,7 @@ static EvalResult apply_procedure(Obj proc, std::vector<Obj> args,
   while (true) {
     if (proc.is_procedure()) {
       Procedure *p = proc.as_procedure();
-      Env &new_env = *context.alloc<Env>(Env::local(p->env.get()));
+      Env &new_env = *context.alloc<Env>(&p->env.get());
       p->formals.bind(new_env, args, context);
       return TailCall{p->body, new_env};
     }
@@ -355,7 +355,7 @@ static EvalResult eval_let(Obj rest, Env &env, EvalContext &context,
   check_arity(rest, name, 2, SIZE_MAX);
   Obj bindings = rest.car();
   Obj body_list = rest.cdr();
-  Env &new_env = *context.alloc<Env>(Env::local(env));
+  Env &new_env = *context.alloc<Env>(&env);
 
   if (kind == LetKind::Rec) {
     for (Obj binding : ListView{bindings}) {
@@ -401,13 +401,13 @@ static EvalResult eval_named_let(Obj rest, Env &env, EvalContext &context) {
     args.push_back(context.eval(binding.cdr().car(), env));
   }
 
-  Env &loop_env = *context.alloc<Env>(Env::local(env));
+  Env &loop_env = *context.alloc<Env>(&env);
   Procedure *proc =
       context.alloc<Procedure>(Formals{std::move(params), std::nullopt},
                                   body, loop_env, ProcedureKind::Function);
   loop_env.define(name, proc);
 
-  Env &call_env = *context.alloc<Env>(Env::local(loop_env));
+  Env &call_env = *context.alloc<Env>(&loop_env);
   proc->formals.bind(call_env, args, context);
   return TailCall{proc->body, call_env};
 }
@@ -555,7 +555,7 @@ static EvalResult eval_guard(Obj rest, Env &env, EvalContext &context) {
     caught = std::move(e);
   }
 
-  Env &handler_env = *context.alloc<Env>(Env::local(env));
+  Env &handler_env = *context.alloc<Env>(&env);
   handler_env.define(spec.car().as_symbol(), caught->as_condition(context));
 
   if (auto handled = try_cond(spec.cdr(), handler_env, context)) {
@@ -666,7 +666,7 @@ static EvalResult eval_expr(Obj expr, Env &env, EvalContext &context) {
         Procedure *p = macro_val->as_procedure();
         std::vector<Obj> raw_args =
             std::ranges::to<std::vector>(ListView{rest});
-        Env &macro_env = *context.alloc<Env>(Env::local(p->env.get()));
+        Env &macro_env = *context.alloc<Env>(&p->env.get());
         p->formals.bind(macro_env, raw_args, context);
         Obj expanded = context.eval(p->body, macro_env);
         return TailCall{expanded, env};

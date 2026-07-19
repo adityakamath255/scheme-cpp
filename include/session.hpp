@@ -34,12 +34,6 @@ public:
   Session();
   ~Session();
 
-  Session(Session &&) noexcept;
-  Session &operator=(Session &&) noexcept;
-
-  Session(const Session &) = delete;
-  Session &operator=(const Session &) = delete;
-
   [[nodiscard]] RunResult run(std::string_view source, const Emit &emit);
   void execute(std::string_view source, const Emit &emit);
 };

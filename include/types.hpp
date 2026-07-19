@@ -224,16 +224,11 @@ class Env : public HeapEntity {
   std::unordered_map<Symbol, Obj> bindings;
   Env *const parent;
 
-  explicit Env(Env *parent);
-
 public:
-  static Env global();
-  static Env local(Env &parent);
+  explicit Env(Env *parent = nullptr);
 
   Env(const Env &) = delete;
   Env &operator=(const Env &) = delete;
-  Env(Env &&) noexcept = default;
-  Env &operator=(Env &&) = delete;
 
   std::optional<Obj> lookup(Symbol name) const;
   void define(Symbol name, Obj value);
