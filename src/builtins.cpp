@@ -1,7 +1,6 @@
 #include "builtins.hpp"
 #include "eval.hpp"
-#include "lex.hpp"
-#include "parse.hpp"
+#include "read.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -609,9 +608,9 @@ static Obj builtin_read(const std::vector<Obj> &args, EvalContext &context) {
     }
     input += line;
 
-    auto result = lex(input);
-    if (result && !result->tokens.empty()) {
-      return parse(result->tokens, context);
+    ReadOutcome outcome = read_one(input, context);
+    if (auto *datum = std::get_if<ReadDatum>(&outcome)) {
+      return datum->value;
     }
   }
 }

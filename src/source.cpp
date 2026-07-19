@@ -1,7 +1,6 @@
 #include "eval.hpp"
 
-#include "lex.hpp"
-#include "parse.hpp"
+#include "read.hpp"
 
 scheme::RunResult EvalContext::run(
   std::string_view source,
@@ -10,32 +9,31 @@ scheme::RunResult EvalContext::run(
   std::string_view remaining = source;
 
   while (true) {
-    auto read = lex(remaining);
+    collect_if_needed();
+    ReadOutcome read = read_one(remaining, *this);
 
-    if (!read) {
+    if (std::holds_alternative<ReadIncomplete>(read)) {
       return {
         .consumed = source.size() - remaining.size(),
         .incomplete = true
       };
     }
 
-    if (read->tokens.empty()) {
+    if (auto *end = std::get_if<ReadEnd>(&read)) {
       return {
-        .consumed = source.size() - read->rest.size(),
+        .consumed = source.size() - end->rest.size(),
         .incomplete = false
       };
     }
 
-    collect_if_needed();
-
-    Obj expression = parse(read->tokens, *this);
-    Obj value = eval(expression, state.global_env);
+    auto &datum = std::get<ReadDatum>(read);
+    Obj value = eval(datum.value, state.global_env);
 
     if (result_mode == ResultMode::Emit && !value.is_void()) {
       result(value.to_write());
     }
 
-    remaining = read->rest;
+    remaining = datum.rest;
   }
 }
 

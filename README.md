@@ -236,10 +236,8 @@ vector allocation).
 
 The core interpreter lives in `src/`:
 
-- `lex.cpp` - tokenizer. Returns `nullopt` for incomplete input so clients can
-  detect multi-line expressions without a separate bracket checker.
-- `parse.cpp` - recursive descent parser. Produces S-expressions (cons cells,
-  symbols, literals), not an AST.
+- `read.cpp` - pull-based reader. It tokenizes as needed while recursively
+  producing Scheme datums and reports incomplete input to interactive clients.
 - `types.cpp` - the `Obj` class wrapping
   `std::variant<bool, char, Number, Symbol, String*, Cons*, Vector*,
   Procedure*, Builtin*, Promise*, Error*, Null, Void>`, where `Number` is a
