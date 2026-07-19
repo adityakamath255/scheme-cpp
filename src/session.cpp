@@ -29,7 +29,8 @@ public:
 }
 
 scheme::SessionState::SessionState()
-    : live{}, interned{}, gc_threshold{1024}, global_env{}, active{false} {}
+    : live{}, interned{}, gc_threshold{1024},
+      global_env{Env::global()}, active{false} {}
 
 std::unique_ptr<scheme::SessionState>
 scheme::SessionState::create() {

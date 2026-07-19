@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -104,6 +105,12 @@ class Symbol {
 public:
   const std::string &name() const;
   bool operator==(Symbol other) const;
+};
+
+template <> struct std::hash<Symbol> {
+  size_t operator()(const Symbol &s) const {
+    return std::hash<const void *>()(s.ptr);
+  }
 };
 
 class Obj {
@@ -213,6 +220,28 @@ struct HeapEntity {
   virtual ~HeapEntity() = default;
 };
 
+class Env : public HeapEntity {
+  std::unordered_map<Symbol, Obj> bindings;
+  Env *const parent;
+
+  explicit Env(Env *parent);
+
+public:
+  static Env global();
+  static Env local(Env &parent);
+
+  Env(const Env &) = delete;
+  Env &operator=(const Env &) = delete;
+  Env(Env &&) noexcept = default;
+  Env &operator=(Env &&) = delete;
+
+  std::optional<Obj> lookup(Symbol name) const;
+  void define(Symbol name, Obj value);
+  bool set(Symbol name, Obj value);
+
+  void trace(std::vector<HeapEntity *> &) const override;
+};
+
 struct String : HeapEntity {
   std::string data;
 
@@ -300,10 +329,4 @@ struct SchemeError : std::runtime_error {
   static SchemeError raised(Obj payload);
 
   Obj as_condition(EvalContext &context);
-};
-
-template <> struct std::hash<Symbol> {
-  size_t operator()(const Symbol &s) const {
-    return std::hash<const void *>()(s.ptr);
-  }
 };

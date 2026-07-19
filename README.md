@@ -242,13 +242,11 @@ The core interpreter lives in `src/`:
   `std::variant<bool, char, Number, Symbol, String*, Cons*, Vector*,
   Procedure*, Builtin*, Promise*, Error*, Null, Void>`, where `Number` is a
   fixnum/bignum/double variant. Provides type checks, accessors, structural
-  equality, and printing (`to_write`/`to_display`).
+  equality, printing (`to_write`/`to_display`), and GC-managed runtime objects,
+  including lexical environments.
 - `number.cpp` - the `Number` type: exact fixnums that auto-promote to
   libtommath bignums on overflow, plus inexact doubles. Arithmetic, comparison,
   and exact/inexact conversion.
-- `env.cpp` - lexical environments. `GlobalEnv` is a hash map from interned
-  symbols to values; `LocalEnv` is a small vector of bindings with a parent
-  pointer.
 - `eval.cpp` - evaluation. `EvalContext` owns one active execution, dispatches
   special forms, emits output, and runs the tail call trampoline.
 - `builtins.cpp` - all built-in procedure implementations, registered as raw function pointers.

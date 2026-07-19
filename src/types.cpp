@@ -1,5 +1,4 @@
 #include "types.hpp"
-#include "env.hpp"
 #include "eval.hpp"
 
 #include <algorithm>
@@ -376,6 +375,42 @@ String::String(std::string data) : data{std::move(data)} {}
 void trace_child(Obj obj, std::vector<HeapEntity *> &worklist) {
   if (auto *entity = obj.heap_entity()) {
     worklist.push_back(entity);
+  }
+}
+
+Env::Env(Env *parent) : bindings{}, parent{parent} {}
+
+Env Env::global() { return Env{nullptr}; }
+
+Env Env::local(Env &parent) { return Env{&parent}; }
+
+std::optional<Obj> Env::lookup(Symbol name) const {
+  auto binding = bindings.find(name);
+  if (binding != bindings.end()) {
+    return binding->second;
+  }
+  return parent ? parent->lookup(name) : std::nullopt;
+}
+
+void Env::define(Symbol name, Obj value) {
+  bindings.insert_or_assign(name, value);
+}
+
+bool Env::set(Symbol name, Obj value) {
+  auto binding = bindings.find(name);
+  if (binding != bindings.end()) {
+    binding->second = value;
+    return true;
+  }
+  return parent && parent->set(name, value);
+}
+
+void Env::trace(std::vector<HeapEntity *> &worklist) const {
+  for (const auto &[_, value] : bindings) {
+    trace_child(value, worklist);
+  }
+  if (parent) {
+    worklist.push_back(parent);
   }
 }
 

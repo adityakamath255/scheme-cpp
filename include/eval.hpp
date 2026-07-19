@@ -1,5 +1,4 @@
 #pragma once
-#include "env.hpp"
 #include "scheme.hpp"
 #include "types.hpp"
 
@@ -21,7 +20,7 @@ class SessionState {
   std::vector<HeapEntity *> live;
   std::unordered_set<std::string> interned;
   size_t gc_threshold;
-  GlobalEnv global_env;
+  Env global_env;
   bool active;
 
   bool should_collect() const;
