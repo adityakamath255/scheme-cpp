@@ -1,7 +1,6 @@
 #include "types.hpp"
 #include "env.hpp"
 #include "eval.hpp"
-#include "runtime.hpp"
 
 #include <algorithm>
 #include <format>
@@ -408,9 +407,9 @@ void Procedure::trace(std::vector<HeapEntity *> &worklist) const {
 
 Promise::Promise(Obj body, Env &env) : state{Thunk{body, env}} {}
 
-Obj Promise::force(Evaluator &evaluator) {
+Obj Promise::force(EvalContext &context) {
   if (auto *t = std::get_if<Thunk>(&state)) {
-    state = evaluator.eval(t->body, t->env.get());
+    state = context.eval(t->body, t->env.get());
   }
   return std::get<Obj>(state);
 }
@@ -453,6 +452,6 @@ SchemeError SchemeError::raised(Obj payload) {
   return e;
 }
 
-Obj SchemeError::as_condition(Evaluator &evaluator) {
-  return payload ? *payload : Obj(evaluator.alloc<Error>(what(), Null{}));
+Obj SchemeError::as_condition(EvalContext &context) {
+  return payload ? *payload : Obj(context.alloc<Error>(what(), Null{}));
 }

@@ -1,6 +1,5 @@
 #pragma once
-#include "types.hpp"
 
-class Runtime;
+class EvalContext;
 
-void install_builtins(Runtime &runtime);
+void install_builtins(EvalContext &context);

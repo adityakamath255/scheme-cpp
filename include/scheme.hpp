@@ -9,6 +9,8 @@
 
 namespace scheme {
 
+class SessionState;
+
 struct Output {
   std::string text;
 };
@@ -26,8 +28,7 @@ struct RunResult {
 };
 
 class Session {
-  class Impl;
-  std::unique_ptr<Impl> impl;
+  std::unique_ptr<SessionState> state;
 
 public:
   Session();

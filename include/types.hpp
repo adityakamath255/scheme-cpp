@@ -31,8 +31,7 @@ struct Void {};
 
 class Obj;
 class Env;
-class Runtime;
-class Evaluator;
+class EvalContext;
 struct HeapEntity;
 struct ListProfile;
 
@@ -61,9 +60,9 @@ class Number {
   explicit Number(std::variant<int64_t, BigInt *, double> rep);
 
 public:
-  static Number exact(int64_t v, Evaluator &evaluator);
+  static Number exact(int64_t v, EvalContext &context);
   static Number inexact(double v);
-  static Number parse(std::string_view lexeme, Runtime &runtime);
+  static Number parse(std::string_view lexeme, EvalContext &context);
 
   bool is_exact() const;
   bool is_integer() const;
@@ -73,19 +72,19 @@ public:
   double to_double() const;
   std::optional<size_t> to_size() const;
 
-  Number add(Number o, Evaluator &evaluator) const;
-  Number sub(Number o, Evaluator &evaluator) const;
-  Number mul(Number o, Evaluator &evaluator) const;
-  Number div(Number o, Evaluator &evaluator) const;
-  Number neg(Evaluator &evaluator) const;
-  Number abs(Evaluator &evaluator) const;
-  Number sqrt(Evaluator &evaluator) const;
-  Number quotient(Number o, Evaluator &evaluator) const;
-  Number remainder(Number o, Evaluator &evaluator) const;
-  Number modulo(Number o, Evaluator &evaluator) const;
-  Number expt(Number power, Evaluator &evaluator) const;
+  Number add(Number o, EvalContext &context) const;
+  Number sub(Number o, EvalContext &context) const;
+  Number mul(Number o, EvalContext &context) const;
+  Number div(Number o, EvalContext &context) const;
+  Number neg(EvalContext &context) const;
+  Number abs(EvalContext &context) const;
+  Number sqrt(EvalContext &context) const;
+  Number quotient(Number o, EvalContext &context) const;
+  Number remainder(Number o, EvalContext &context) const;
+  Number modulo(Number o, EvalContext &context) const;
+  Number expt(Number power, EvalContext &context) const;
   Number to_inexact() const;
-  Number to_exact(Evaluator &evaluator) const;
+  Number to_exact(EvalContext &context) const;
 
   std::partial_ordering compare(Number o) const;
   bool eqv(Number o) const;
@@ -99,7 +98,7 @@ class Symbol {
 
   explicit Symbol(const std::string &);
 
-  friend class Runtime;
+  friend class EvalContext;
   friend struct std::hash<Symbol>;
 
 public:
@@ -237,7 +236,7 @@ struct Vector : HeapEntity {
 };
 
 struct Builtin : HeapEntity {
-  using Fn = Obj (*)(const std::vector<Obj> &, Evaluator &);
+  using Fn = Obj (*)(const std::vector<Obj> &, EvalContext &);
   struct Apply {};
   using Implementation = std::variant<Fn, Apply>;
 
@@ -251,7 +250,7 @@ struct Formals {
   std::optional<Symbol> rest;
 
   static Formals parse(Obj formals);
-  void bind(Env &env, const std::vector<Obj> &args, Evaluator &evaluator) const;
+  void bind(Env &env, const std::vector<Obj> &args, EvalContext &context) const;
 };
 
 enum class ProcedureKind { Function, Macro };
@@ -278,7 +277,7 @@ class Promise : public HeapEntity {
 public:
   Promise(Obj body, Env &env);
 
-  Obj force(Evaluator &evaluator);
+  Obj force(EvalContext &context);
 
   void trace(std::vector<HeapEntity *> &) const override;
 };
@@ -300,7 +299,7 @@ struct SchemeError : std::runtime_error {
   explicit SchemeError(const std::string &message);
   static SchemeError raised(Obj payload);
 
-  Obj as_condition(Evaluator &evaluator);
+  Obj as_condition(EvalContext &context);
 };
 
 template <> struct std::hash<Symbol> {

@@ -3,7 +3,7 @@
 #include "lex.hpp"
 #include "parse.hpp"
 
-scheme::RunResult Evaluator::run(
+scheme::RunResult EvalContext::run(
   std::string_view source,
   ResultMode result_mode
 ) {
@@ -28,7 +28,7 @@ scheme::RunResult Evaluator::run(
 
     collect_if_needed();
 
-    Obj expression = parse(read->tokens, state);
+    Obj expression = parse(read->tokens, *this);
     Obj value = eval(expression, state.global_env);
 
     if (result_mode == ResultMode::Emit && !value.is_void()) {
@@ -39,7 +39,7 @@ scheme::RunResult Evaluator::run(
   }
 }
 
-void Evaluator::execute(
+void EvalContext::execute(
   std::string_view source,
   ResultMode result_mode
 ) {

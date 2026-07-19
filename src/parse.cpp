@@ -1,5 +1,5 @@
 #include "parse.hpp"
-#include "runtime.hpp"
+#include "eval.hpp"
 #include <array>
 #include <cassert>
 #include <string>
@@ -43,7 +43,7 @@ static std::string process_escapes(std::string_view raw) {
 class Parser {
   const std::vector<Token> &tokens;
   size_t index;
-  Runtime &runtime;
+  EvalContext &context;
 
   bool match(Token::Type type) {
     if (index < tokens.size() && tokens[index].type == type) {
@@ -55,7 +55,7 @@ class Parser {
   }
 
   Obj parse_quoted(Symbol sym) {
-    return list_from(std::array<Obj, 2>{sym, parse_expr()}, runtime);
+    return list_from(std::array<Obj, 2>{sym, parse_expr()}, context);
   }
 
   Obj parse_list() {
@@ -70,13 +70,13 @@ class Parser {
         if (!match(Token::RPAREN)) {
           throw SchemeError("expected ')' after dotted pair");
         }
-        return list_from(elements, runtime, tail);
+        return list_from(elements, context, tail);
       }
 
       elements.push_back(parse_expr());
     }
 
-    return list_from(elements, runtime);
+    return list_from(elements, context);
   }
 
   Obj parse_expr() {
@@ -89,16 +89,16 @@ class Parser {
       return parse_list();
 
     case Token::QUOTE:
-      return parse_quoted(runtime.intern("quote"));
+      return parse_quoted(context.intern("quote"));
 
     case Token::BACKTICK:
-      return parse_quoted(runtime.intern("quasiquote"));
+      return parse_quoted(context.intern("quasiquote"));
 
     case Token::COMMA:
-      return parse_quoted(runtime.intern("unquote"));
+      return parse_quoted(context.intern("unquote"));
 
     case Token::SPLICE_COMMA:
-      return parse_quoted(runtime.intern("unquote-splicing"));
+      return parse_quoted(context.intern("unquote-splicing"));
 
     case Token::TRUE:
       return true;
@@ -110,15 +110,15 @@ class Parser {
     case Token::MINUS_INF:
     case Token::NAN_VAL:
     case Token::NUMBER:
-      return Number::parse(tok.lexeme, runtime);
+      return Number::parse(tok.lexeme, context);
 
     case Token::STRING: {
       auto str = process_escapes(tok.lexeme);
-      return runtime.alloc<String>(std::move(str));
+      return context.alloc<String>(std::move(str));
     }
 
     case Token::SYMBOL:
-      return runtime.intern(tok.lexeme);
+      return context.intern(tok.lexeme);
 
     case Token::VEC_BEGIN: {
       std::vector<Obj> elements;
@@ -126,7 +126,7 @@ class Parser {
         auto obj = parse_expr();
         elements.push_back(obj);
       }
-      return runtime.alloc<Vector>(std::move(elements));
+      return context.alloc<Vector>(std::move(elements));
     }
 
     case Token::CHAR: {
@@ -151,8 +151,8 @@ class Parser {
   }
 
 public:
-  Parser(const std::vector<Token> &tokens, Runtime &runtime)
-      : tokens{tokens}, index{0}, runtime{runtime} {}
+  Parser(const std::vector<Token> &tokens, EvalContext &context)
+      : tokens{tokens}, index{0}, context{context} {}
 
   Obj parse() {
     assert(!tokens.empty());
@@ -160,6 +160,6 @@ public:
   }
 };
 
-Obj parse(const std::vector<Token> &tokens, Runtime &runtime) {
-  return Parser(tokens, runtime).parse();
+Obj parse(const std::vector<Token> &tokens, EvalContext &context) {
+  return Parser(tokens, context).parse();
 }

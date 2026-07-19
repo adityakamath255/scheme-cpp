@@ -3,6 +3,6 @@
 #include "lex.hpp"
 #include <vector>
 
-class Runtime;
+class EvalContext;
 
-Obj parse(const std::vector<Token> &, Runtime &);
+Obj parse(const std::vector<Token> &, EvalContext &);

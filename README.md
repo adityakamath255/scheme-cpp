@@ -251,19 +251,17 @@ The core interpreter lives in `src/`:
 - `env.cpp` - lexical environments. `GlobalEnv` is a hash map from interned
   symbols to values; `LocalEnv` is a small vector of bindings with a parent
   pointer.
-- `runtime.cpp` - persistent session state: managed heap, symbol intern
-  table, global environment, and garbage collector.
-- `eval.cpp` - per-run evaluator. Dispatches special forms by symbol name,
-  evaluates procedure calls, emits output, and implements the tail call
-  trampoline.
+- `eval.cpp` - evaluation. `EvalContext` owns one active execution, dispatches
+  special forms, emits output, and runs the tail call trampoline.
 - `builtins.cpp` - all built-in procedure implementations, registered as raw function pointers.
 - `preamble.cpp` - the standard library, stored as a string literal and evaluated at startup.
-- `source.cpp` - the `Evaluator` source loop. It reports how much input was
+- `source.cpp` - the `EvalContext` source loop. It reports how much input was
   consumed, distinguishes incomplete input from completion, and runs GC
   between top-level forms.
-- `session.cpp` - the public `scheme::Session` boundary. It owns the runtime,
-  installs builtins and the preamble, and exposes incremental and strict
-  execution.
+- `session.cpp` - the public `scheme::Session` boundary and its private state.
+  `SessionState` owns the managed heap, symbol table, global environment, and
+  garbage collector. It initializes the interpreter and exposes incremental
+  and strict execution.
 
 The two front-ends use `scheme::Session` through `include/scheme.hpp`:
 
