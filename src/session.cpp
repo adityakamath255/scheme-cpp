@@ -5,11 +5,36 @@
 #include "preamble.hpp"
 #include "read.hpp"
 
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+namespace scheme {
+
+class SessionState {
+  std::vector<std::unique_ptr<HeapEntity>> heap;
+  std::unordered_set<std::string> interned;
+  size_t gc_threshold;
+  Env global_env;
+  bool active;
+
+  bool should_collect() const;
+  void collect();
+
+  friend class ::EvalContext;
+
+public:
+  SessionState();
+
+  RunResult run(std::string_view source, const Emit &emit);
+  void execute(std::string_view source, const Emit &emit);
+};
+
+}
 
 namespace {
 
@@ -30,31 +55,16 @@ public:
 }
 
 scheme::SessionState::SessionState()
-    : live{}, interned{}, gc_threshold{1024},
-      global_env{}, active{false} {}
-
-std::unique_ptr<scheme::SessionState>
-scheme::SessionState::create() {
-  auto state = std::unique_ptr<SessionState>(new SessionState);
-  state->initialize();
-  return state;
-}
-
-void scheme::SessionState::initialize() {
+    : heap{}, interned{}, gc_threshold{1024},
+      global_env{}, active{false} {
   const Emit ignore;
   EvalContext context{*this, ignore};
   install_builtins(context);
   context.execute(preamble, ResultMode::Suppress);
 }
 
-scheme::SessionState::~SessionState() {
-  for (auto *entity : live) {
-    delete entity;
-  }
-}
-
 bool scheme::SessionState::should_collect() const {
-  return live.size() > gc_threshold;
+  return heap.size() > gc_threshold;
 }
 
 void scheme::SessionState::collect() {
@@ -71,17 +81,35 @@ void scheme::SessionState::collect() {
     }
   }
 
-  std::vector<HeapEntity *> surviving;
-  for (auto *entity : live) {
-    if (marked.contains(entity)) {
-      surviving.push_back(entity);
-    } else {
-      delete entity;
-    }
-  }
+  std::erase_if(heap, [&](const auto &entity) {
+    return !marked.contains(entity.get());
+  });
+  gc_threshold = heap.size() * 2;
+}
 
-  live = std::move(surviving);
-  gc_threshold = live.size() * 2;
+void EvalContext::own(std::unique_ptr<HeapEntity> object) {
+  state.heap.push_back(std::move(object));
+}
+
+Symbol EvalContext::intern(std::string_view name) {
+  auto [symbol, _] = state.interned.insert(std::string(name));
+  return Symbol{*symbol};
+}
+
+void EvalContext::install_builtin(
+    std::string_view name, Builtin::Implementation implementation) {
+  state.global_env.define(
+      intern(name), alloc<Builtin>(std::move(implementation)));
+}
+
+void EvalContext::collect_if_needed() {
+  if (depth == 0 && state.should_collect()) {
+    state.collect();
+  }
+}
+
+Obj EvalContext::eval_global(Obj expression) {
+  return eval(expression, state.global_env);
 }
 
 scheme::RunResult EvalContext::run(std::string_view source,
@@ -137,7 +165,7 @@ void scheme::SessionState::execute(std::string_view source,
   context.execute(source, ResultMode::Emit);
 }
 
-scheme::Session::Session() : state{SessionState::create()} {}
+scheme::Session::Session() : state{std::make_unique<SessionState>()} {}
 
 scheme::Session::~Session() = default;
 

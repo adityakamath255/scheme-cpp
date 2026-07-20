@@ -8,42 +8,10 @@
 #include <ranges>
 #include <string>
 #include <string_view>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
 class EvalContext;
-
-namespace scheme {
-
-class SessionState {
-  std::vector<HeapEntity *> live;
-  std::unordered_set<std::string> interned;
-  size_t gc_threshold;
-  Env global_env;
-  bool active;
-
-  bool should_collect() const;
-  void collect();
-  void initialize();
-
-  SessionState();
-
-  friend class ::EvalContext;
-
-public:
-  static std::unique_ptr<SessionState> create();
-
-  ~SessionState();
-
-  SessionState(const SessionState &) = delete;
-  SessionState &operator=(const SessionState &) = delete;
-
-  RunResult run(std::string_view source, const Emit &emit);
-  void execute(std::string_view source, const Emit &emit);
-};
-
-}
 
 enum class ResultMode {
   Emit,
@@ -63,6 +31,7 @@ class EvalContext {
     ~Frame();
   };
 
+  void own(std::unique_ptr<HeapEntity>);
   void result(std::string) const;
   void collect_if_needed();
 
@@ -74,9 +43,10 @@ public:
 
   template<typename T, typename... Args>
   T *alloc(Args&&... args) {
-    T *obj = new T(std::forward<Args>(args)...);
-    state.live.push_back(obj);
-    return obj;
+    auto owned = std::make_unique<T>(std::forward<Args>(args)...);
+    T *object = owned.get();
+    own(std::move(owned));
+    return object;
   }
 
   void output(std::string_view) const;

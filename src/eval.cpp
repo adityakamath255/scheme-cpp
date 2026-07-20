@@ -11,17 +11,6 @@ EvalContext::EvalContext(scheme::SessionState &state,
                          const scheme::Emit &emit)
     : state{state}, emit_event{emit}, depth{0} {}
 
-Symbol EvalContext::intern(std::string_view name) {
-  auto [it, _] = state.interned.insert(std::string(name));
-  return Symbol{*it};
-}
-
-void EvalContext::install_builtin(std::string_view name,
-                                  Builtin::Implementation implementation) {
-  state.global_env.define(
-      intern(name), alloc<Builtin>(std::move(implementation)));
-}
-
 void EvalContext::output(std::string_view text) const {
   if (emit_event) {
     emit_event(scheme::Output{std::string(text)});
@@ -31,12 +20,6 @@ void EvalContext::output(std::string_view text) const {
 void EvalContext::result(std::string text) const {
   if (emit_event) {
     emit_event(scheme::Result{std::move(text)});
-  }
-}
-
-void EvalContext::collect_if_needed() {
-  if (depth == 0 && state.should_collect()) {
-    state.collect();
   }
 }
 
@@ -684,8 +667,4 @@ Obj EvalContext::eval(Obj expr, Env &env) {
     result = eval_expr(tc->expr, tc->env.get(), *this);
   }
   return std::get<Obj>(result);
-}
-
-Obj EvalContext::eval_global(Obj expression) {
-  return eval(expression, state.global_env);
 }
