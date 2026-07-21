@@ -10,353 +10,446 @@
 #include <cstdlib>
 #include <format>
 #include <fstream>
-#include <functional>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <ranges>
 #include <sstream>
+#include <tuple>
+#include <type_traits>
 #include <utility>
 
-static void check_arity(const std::vector<Obj> &args, std::string_view name,
-                        size_t min, size_t max) {
-  check_arity(args.size(), name, min, max);
-}
+namespace {
 
-static void check_type(Obj obj, bool (Obj::*pred)() const,
-                       std::string_view type_name, std::string_view context) {
-  if (!(obj.*pred)()) {
-    throw SchemeError(std::format("{}: expected {}, got {}", context, type_name,
-                                  obj.type_name()));
-  }
-}
+using Args = const std::vector<Obj> &;
 
-static Number as_num(Obj obj, std::string_view context) {
-  check_type(obj, &Obj::is_number, "number", context);
-  return obj.as_number();
-}
+class BuiltinError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
 
-static size_t as_index(Obj obj, std::string_view context) {
-  auto index = as_num(obj, context).to_size();
-  if (!index) {
-    throw SchemeError(
-        std::format("{}: expected non-negative integer", context));
-  }
-  return *index;
-}
+enum class PatternKind { Required, Optional, Rest };
 
-static String *as_string(Obj obj, std::string_view context) {
-  check_type(obj, &Obj::is_string, "string", context);
-  return obj.as_string();
-}
+template <typename T> struct ObjectPattern {
+  using Value = T;
+  static constexpr PatternKind kind = PatternKind::Required;
 
-static Cons *as_cons(Obj obj, std::string_view context) {
-  check_type(obj, &Obj::is_cons, "pair", context);
-  return obj.as_cons();
-}
+  T (Obj::*accessor)() const;
 
-static Vector *as_vector(Obj obj, std::string_view context) {
-  check_type(obj, &Obj::is_vector, "vector", context);
-  return obj.as_vector();
-}
-
-static char as_char(Obj obj, std::string_view context) {
-  check_type(obj, &Obj::is_char, "char", context);
-  return obj.as_char();
-}
-
-static Obj
-numeric_compare(const std::vector<Obj> &args, std::string_view name,
-                const std::function<bool(std::partial_ordering)> &ok) {
-  check_arity(args, name, 1, SIZE_MAX);
-  auto nums = args |
-              std::views::transform([&](Obj a) { return as_num(a, name); }) |
-              std::ranges::to<std::vector>();
-  return std::ranges::adjacent_find(nums, [&](Number a, Number b) {
-           return !ok(a.compare(b));
-         }) == nums.end();
-}
-
-static Obj builtin_add(const std::vector<Obj> &args, EvalContext &context) {
-  return std::ranges::fold_left(args, Number::exact(0, context),
-                                [&context](Number acc, Obj x) {
-                                  return acc.add(as_num(x, "+"), context);
-                                });
-}
-
-static Obj builtin_sub(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "-", 1, SIZE_MAX);
-  Number result = as_num(args[0], "-");
-  if (args.size() == 1) {
-    return result.neg(context);
-  } else {
-    for (size_t i = 1; i < args.size(); i += 1) {
-      result = result.sub(as_num(args[i], "-"), context);
+  T decode(Obj obj) const {
+    try {
+      return (obj.*accessor)();
+    } catch (const SchemeError &error) {
+      throw BuiltinError(error.what());
     }
-    return result;
   }
+
+  T parse(Args raw, size_t &position) const {
+    return decode(raw[position++]);
+  }
+};
+
+template <typename T>
+ObjectPattern(T (Obj::*)() const) -> ObjectPattern<T>;
+
+struct AnyPattern {
+  using Value = Obj;
+  static constexpr PatternKind kind = PatternKind::Required;
+
+  Obj parse(Args raw, size_t &position) const { return raw[position++]; }
+};
+
+struct IndexPattern {
+  using Value = size_t;
+  static constexpr PatternKind kind = PatternKind::Required;
+
+  size_t parse(Args raw, size_t &position) const;
+};
+
+namespace arg {
+
+constexpr AnyPattern any;
+constexpr ObjectPattern number{&Obj::as_number};
+constexpr ObjectPattern character{&Obj::as_char};
+constexpr ObjectPattern symbol{&Obj::as_symbol};
+constexpr ObjectPattern string{&Obj::as_string};
+constexpr ObjectPattern pair{&Obj::as_cons};
+constexpr ObjectPattern vector{&Obj::as_vector};
+constexpr ObjectPattern error{&Obj::as_error};
+constexpr IndexPattern index;
+
 }
 
-static Obj builtin_mul(const std::vector<Obj> &args, EvalContext &context) {
-  return std::ranges::fold_left(args, Number::exact(1, context),
-                                [&context](Number acc, Obj x) {
-                                  return acc.mul(as_num(x, "*"), context);
-                                });
+size_t IndexPattern::parse(Args raw, size_t &position) const {
+  auto value = arg::number.decode(raw[position++]).to_size();
+  if (!value) {
+    throw BuiltinError("expected non-negative integer");
+  }
+  return *value;
 }
 
-static Obj builtin_div(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "/", 1, SIZE_MAX);
-  Number result = as_num(args[0], "/");
-  if (args.size() == 1) {
-    return Number::exact(1, context).div(result, context);
-  } else {
-    for (size_t i = 1; i < args.size(); i += 1) {
-      result = result.div(as_num(args[i], "/"), context);
+template <typename Pattern> struct OptionalPattern {
+  using Value = std::optional<typename Pattern::Value>;
+  static constexpr PatternKind kind = PatternKind::Optional;
+
+  Pattern pattern;
+
+  Value parse(Args raw, size_t &position) const {
+    if (position == raw.size()) {
+      return {};
     }
-    return result;
+    return pattern.parse(raw, position);
+  }
+};
+
+template <typename Pattern> struct RestPattern {
+  using Value = std::vector<typename Pattern::Value>;
+  static constexpr PatternKind kind = PatternKind::Rest;
+
+  Pattern pattern;
+
+  Value parse(Args raw, size_t &position) const {
+    Value values;
+    values.reserve(raw.size() - position);
+    while (position < raw.size()) {
+      values.push_back(pattern.parse(raw, position));
+    }
+    return values;
+  }
+};
+
+template <typename Pattern>
+OptionalPattern<Pattern> optional(Pattern pattern) {
+  return {pattern};
+}
+
+template <typename Pattern> RestPattern<Pattern> rest(Pattern pattern) {
+  return {pattern};
+}
+
+consteval bool valid_transition(PatternKind previous, PatternKind next) {
+  switch (next) {
+  case PatternKind::Required:
+    return previous == PatternKind::Required;
+  case PatternKind::Optional:
+    return previous != PatternKind::Rest;
+  case PatternKind::Rest:
+    return previous == PatternKind::Required;
+  }
+  std::unreachable();
+}
+
+template <typename... Patterns> consteval bool valid_patterns() {
+  if constexpr (sizeof...(Patterns) == 0) {
+    return true;
+  } else {
+    PatternKind state = PatternKind::Required;
+    bool valid = true;
+    ((valid = valid && valid_transition(state, Patterns::kind),
+      state = Patterns::kind),
+     ...);
+    return valid;
   }
 }
 
-static Obj builtin_lt(const std::vector<Obj> &args, EvalContext &) {
-  return numeric_compare(args, "<", [](std::partial_ordering o) {
-    return o == std::partial_ordering::less;
-  });
+template <typename... Patterns> auto match(Args raw, Patterns... patterns) {
+  static_assert(valid_patterns<Patterns...>(),
+                "required patterns precede optional or final rest patterns");
+
+  constexpr size_t min =
+      (size_t{0} + ... + (Patterns::kind == PatternKind::Required ? 1 : 0));
+  constexpr bool unbounded =
+      ((Patterns::kind == PatternKind::Rest) || ... || false);
+  constexpr size_t max = unbounded ? SIZE_MAX : sizeof...(Patterns);
+  if (raw.size() < min || raw.size() > max) {
+    auto expected = min == max ? std::to_string(min)
+                               : std::format("{}-{}", min, max);
+    throw BuiltinError(
+        std::format("expected {} arguments, got {}", expected, raw.size()));
+  }
+
+  size_t position = 0;
+  if constexpr (sizeof...(Patterns) == 0) {
+    return;
+  } else if constexpr (sizeof...(Patterns) == 1) {
+    return (patterns.parse(raw, position), ...);
+  } else {
+    return std::tuple{patterns.parse(raw, position)...};
+  }
 }
 
-static Obj builtin_gt(const std::vector<Obj> &args, EvalContext &) {
-  return numeric_compare(args, ">", [](std::partial_ordering o) {
-    return o == std::partial_ordering::greater;
-  });
+class Installer {
+  EvalContext &context;
+
+public:
+  explicit Installer(EvalContext &context) : context{context} {}
+
+  template <typename Implementation>
+  void operator()(std::string_view name, Implementation implementation) const {
+    static_assert(std::is_empty_v<Implementation>,
+                  "builtin implementations must not capture state");
+
+    auto adapter = [name = std::string{name}, implementation](
+                       Args raw, EvalContext &context) -> Obj {
+      try {
+        return implementation(raw, context);
+      } catch (const BuiltinError &error) {
+        throw SchemeError(std::format("{}: {}", name, error.what()));
+      }
+    };
+    context.install_builtin(name, Builtin::Fn{std::move(adapter)});
+  }
+};
+
 }
 
-static Obj builtin_num_eq(const std::vector<Obj> &args, EvalContext &) {
-  return numeric_compare(args, "=", [](std::partial_ordering o) {
-    return o == std::partial_ordering::equivalent;
-  });
+template <typename Predicate>
+static bool numeric_compare(Number first, const std::vector<Number> &rest,
+                            Predicate predicate) {
+  Number previous = first;
+  for (Number number : rest) {
+    if (!predicate(previous.compare(number))) {
+      return false;
+    }
+    previous = number;
+  }
+  return true;
 }
 
-static Obj builtin_le(const std::vector<Obj> &args, EvalContext &) {
-  return numeric_compare(args, "<=", [](std::partial_ordering o) {
-    return o == std::partial_ordering::less ||
-           o == std::partial_ordering::equivalent;
-  });
-}
-
-static Obj builtin_ge(const std::vector<Obj> &args, EvalContext &) {
-  return numeric_compare(args, ">=", [](std::partial_ordering o) {
-    return o == std::partial_ordering::greater ||
-           o == std::partial_ordering::equivalent;
-  });
-}
-
-static Obj builtin_abs(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "abs", 1, 1);
-  return as_num(args[0], "abs").abs(context);
-}
-
-static Obj builtin_sqrt(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "sqrt", 1, 1);
-  return as_num(args[0], "sqrt").sqrt(context);
-}
-
-static Obj builtin_sin(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "sin", 1, 1);
-  return std::sin(as_num(args[0], "sin").to_double());
-}
-
-static Obj builtin_cos(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "cos", 1, 1);
-  return std::cos(as_num(args[0], "cos").to_double());
-}
-
-static Obj builtin_log(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "log", 1, 1);
-  return std::log(as_num(args[0], "log").to_double());
-}
-
-static Obj builtin_expt(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "expt", 2, 2);
-  return as_num(args[0], "expt").expt(as_num(args[1], "expt"), context);
-}
-
-static Obj builtin_ceil(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "ceiling", 1, 1);
-  Number n = as_num(args[0], "ceiling");
-  return n.is_exact() ? n : Number::inexact(std::ceil(n.to_double()));
-}
-
-static Obj builtin_floor(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "floor", 1, 1);
-  Number n = as_num(args[0], "floor");
-  return n.is_exact() ? n : Number::inexact(std::floor(n.to_double()));
-}
-
-static Obj builtin_round(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "round", 1, 1);
-  Number n = as_num(args[0], "round");
-  return n.is_exact() ? n : Number::inexact(std::round(n.to_double()));
-}
-
-static Obj minmax(const std::vector<Obj> &args, std::string_view name,
-                  std::partial_ordering want) {
-  check_arity(args, name, 1, SIZE_MAX);
-  auto nums = args |
-              std::views::transform([&](Obj a) { return as_num(a, name); }) |
-              std::ranges::to<std::vector>();
-  bool inexact =
-      std::ranges::any_of(nums, [](Number n) { return !n.is_exact(); });
-  Number best = std::ranges::fold_left(
-      nums | std::views::drop(1), nums[0],
-      [want](Number a, Number b) { return b.compare(a) == want ? b : a; });
+static Number minmax(Number first, const std::vector<Number> &rest,
+                     std::partial_ordering wanted) {
+  bool inexact = !first.is_exact();
+  Number best = first;
+  for (Number number : rest) {
+    inexact = inexact || !number.is_exact();
+    if (number.compare(best) == wanted) {
+      best = number;
+    }
+  }
   return inexact ? best.to_inexact() : best;
 }
 
-static Obj builtin_max(const std::vector<Obj> &args, EvalContext &) {
-  return minmax(args, "max", std::partial_ordering::greater);
+template <typename Container>
+static decltype(auto) element_at(Container &container, size_t index) {
+  if (index >= container.size()) {
+    throw BuiltinError("index out of range");
+  }
+  return container[index];
 }
 
-static Obj builtin_min(const std::vector<Obj> &args, EvalContext &) {
-  return minmax(args, "min", std::partial_ordering::less);
+template <auto Predicate>
+static void install_predicate(Installer install, std::string_view name) {
+  install(name, [](Args raw, EvalContext &) {
+    return (match(raw, arg::any).*Predicate)();
+  });
 }
 
-static Obj builtin_quotient(const std::vector<Obj> &args,
-                            EvalContext &context) {
-  check_arity(args, "quotient", 2, 2);
-  return as_num(args[0], "quotient")
-      .quotient(as_num(args[1], "quotient"), context);
+static void install_numbers(Installer install) {
+  install("+", [](Args raw, EvalContext &context) {
+    auto numbers = match(raw, rest(arg::number));
+    return std::ranges::fold_left(
+        numbers, Number::exact(0, context),
+        [&context](Number sum, Number number) {
+          return sum.add(number, context);
+        });
+  });
+
+  install("-", [](Args raw, EvalContext &context) {
+    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+    if (remaining.empty()) {
+      return first.neg(context);
+    }
+    return std::ranges::fold_left(
+        remaining, first, [&context](Number difference, Number number) {
+          return difference.sub(number, context);
+        });
+  });
+
+  install("*", [](Args raw, EvalContext &context) {
+    auto numbers = match(raw, rest(arg::number));
+    return std::ranges::fold_left(
+        numbers, Number::exact(1, context),
+        [&context](Number product, Number number) {
+          return product.mul(number, context);
+        });
+  });
+
+  install("/", [](Args raw, EvalContext &context) {
+    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+    if (remaining.empty()) {
+      return Number::exact(1, context).div(first, context);
+    }
+    return std::ranges::fold_left(
+        remaining, first, [&context](Number quotient, Number number) {
+          return quotient.div(number, context);
+        });
+  });
+
+  install("<", [](Args raw, EvalContext &) {
+    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+    return numeric_compare(first, remaining, [](std::partial_ordering order) {
+      return order == std::partial_ordering::less;
+    });
+  });
+  install(">", [](Args raw, EvalContext &) {
+    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+    return numeric_compare(first, remaining, [](std::partial_ordering order) {
+      return order == std::partial_ordering::greater;
+    });
+  });
+  install("=", [](Args raw, EvalContext &) {
+    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+    return numeric_compare(first, remaining, [](std::partial_ordering order) {
+      return order == std::partial_ordering::equivalent;
+    });
+  });
+  install("<=", [](Args raw, EvalContext &) {
+    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+    return numeric_compare(first, remaining, [](std::partial_ordering order) {
+      return order == std::partial_ordering::less ||
+             order == std::partial_ordering::equivalent;
+    });
+  });
+  install(">=", [](Args raw, EvalContext &) {
+    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+    return numeric_compare(first, remaining, [](std::partial_ordering order) {
+      return order == std::partial_ordering::greater ||
+             order == std::partial_ordering::equivalent;
+    });
+  });
+
+  install("abs", [](Args raw, EvalContext &context) {
+    return match(raw, arg::number).abs(context);
+  });
+  install("sqrt", [](Args raw, EvalContext &context) {
+    return match(raw, arg::number).sqrt(context);
+  });
+  install("sin", [](Args raw, EvalContext &) {
+    return std::sin(match(raw, arg::number).to_double());
+  });
+  install("cos", [](Args raw, EvalContext &) {
+    return std::cos(match(raw, arg::number).to_double());
+  });
+  install("log", [](Args raw, EvalContext &) {
+    return std::log(match(raw, arg::number).to_double());
+  });
+  install("expt", [](Args raw, EvalContext &context) {
+    auto [base, power] = match(raw, arg::number, arg::number);
+    return base.expt(power, context);
+  });
+
+  install("ceiling", [](Args raw, EvalContext &) {
+    Number number = match(raw, arg::number);
+    return number.is_exact()
+               ? number
+               : Number::inexact(std::ceil(number.to_double()));
+  });
+  install("floor", [](Args raw, EvalContext &) {
+    Number number = match(raw, arg::number);
+    return number.is_exact()
+               ? number
+               : Number::inexact(std::floor(number.to_double()));
+  });
+  install("round", [](Args raw, EvalContext &) {
+    Number number = match(raw, arg::number);
+    return number.is_exact()
+               ? number
+               : Number::inexact(std::round(number.to_double()));
+  });
+
+  install("max", [](Args raw, EvalContext &) {
+    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+    return minmax(first, remaining, std::partial_ordering::greater);
+  });
+  install("min", [](Args raw, EvalContext &) {
+    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+    return minmax(first, remaining, std::partial_ordering::less);
+  });
+
+  install("quotient", [](Args raw, EvalContext &context) {
+    auto [dividend, divisor] = match(raw, arg::number, arg::number);
+    return dividend.quotient(divisor, context);
+  });
+  install("remainder", [](Args raw, EvalContext &context) {
+    auto [dividend, divisor] = match(raw, arg::number, arg::number);
+    return dividend.remainder(divisor, context);
+  });
+  install("modulo", [](Args raw, EvalContext &context) {
+    auto [dividend, divisor] = match(raw, arg::number, arg::number);
+    return dividend.modulo(divisor, context);
+  });
+
+  install("even?", [](Args raw, EvalContext &) {
+    return match(raw, arg::number).is_even();
+  });
+  install("odd?", [](Args raw, EvalContext &) {
+    return !match(raw, arg::number).is_even();
+  });
+  install("zero?", [](Args raw, EvalContext &) {
+    return match(raw, arg::number).is_zero();
+  });
+  install("positive?", [](Args raw, EvalContext &context) {
+    return match(raw, arg::number).compare(Number::exact(0, context)) ==
+           std::partial_ordering::greater;
+  });
+  install("negative?", [](Args raw, EvalContext &context) {
+    return match(raw, arg::number).compare(Number::exact(0, context)) ==
+           std::partial_ordering::less;
+  });
+  install("exact?", [](Args raw, EvalContext &) {
+    return match(raw, arg::number).is_exact();
+  });
+  install("inexact?", [](Args raw, EvalContext &) {
+    return !match(raw, arg::number).is_exact();
+  });
+
+  auto exact = [](Args raw, EvalContext &context) {
+    return match(raw, arg::number).to_exact(context);
+  };
+  install("exact", exact);
+  install("inexact->exact", exact);
+
+  auto inexact = [](Args raw, EvalContext &) {
+    return match(raw, arg::number).to_inexact();
+  };
+  install("inexact", inexact);
+  install("exact->inexact", inexact);
 }
 
-static Obj builtin_remainder(const std::vector<Obj> &args,
-                             EvalContext &context) {
-  check_arity(args, "remainder", 2, 2);
-  return as_num(args[0], "remainder")
-      .remainder(as_num(args[1], "remainder"), context);
-}
+static void install_objects(Installer install) {
+  install_predicate<&Obj::is_null>(install, "null?");
+  install_predicate<&Obj::is_bool>(install, "boolean?");
+  install_predicate<&Obj::is_number>(install, "number?");
+  install("integer?", [](Args raw, EvalContext &) {
+    Obj value = match(raw, arg::any);
+    return value.is_number() && value.as_number().is_integer();
+  });
+  install_predicate<&Obj::is_cons>(install, "pair?");
+  install_predicate<&Obj::is_symbol>(install, "symbol?");
+  install_predicate<&Obj::is_string>(install, "string?");
+  install("procedure?", [](Args raw, EvalContext &) {
+    Obj value = match(raw, arg::any);
+    return value.is_procedure() || value.is_builtin();
+  });
+  install_predicate<&Obj::is_list>(install, "list?");
+  install_predicate<&Obj::is_void>(install, "void?");
+  install_predicate<&Obj::is_promise>(install, "promise?");
+  install_predicate<&Obj::is_char>(install, "char?");
+  install_predicate<&Obj::is_vector>(install, "vector?");
+  install_predicate<&Obj::is_error>(install, "error-object?");
+  install("not", [](Args raw, EvalContext &) {
+    return match(raw, arg::any).is_false();
+  });
+  install("void", [](Args raw, EvalContext &) {
+    match(raw);
+    return Void{};
+  });
 
-static Obj builtin_modulo(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "modulo", 2, 2);
-  return as_num(args[0], "modulo").modulo(as_num(args[1], "modulo"), context);
-}
-
-static Obj builtin_even(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "even?", 1, 1);
-  return as_num(args[0], "even?").is_even();
-}
-
-static Obj builtin_odd(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "odd?", 1, 1);
-  return !as_num(args[0], "odd?").is_even();
-}
-
-static Obj builtin_is_zero(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "zero?", 1, 1);
-  return as_num(args[0], "zero?").is_zero();
-}
-
-static Obj builtin_is_positive(const std::vector<Obj> &args,
-                               EvalContext &context) {
-  check_arity(args, "positive?", 1, 1);
-  return as_num(args[0], "positive?").compare(Number::exact(0, context)) ==
-         std::partial_ordering::greater;
-}
-
-static Obj builtin_is_negative(const std::vector<Obj> &args,
-                               EvalContext &context) {
-  check_arity(args, "negative?", 1, 1);
-  return as_num(args[0], "negative?").compare(Number::exact(0, context)) ==
-         std::partial_ordering::less;
-}
-
-static Obj builtin_is_exact(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "exact?", 1, 1);
-  return as_num(args[0], "exact?").is_exact();
-}
-
-static Obj builtin_is_inexact(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "inexact?", 1, 1);
-  return !as_num(args[0], "inexact?").is_exact();
-}
-
-static Obj builtin_exact(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "exact", 1, 1);
-  return as_num(args[0], "exact").to_exact(context);
-}
-
-static Obj builtin_inexact(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "inexact", 1, 1);
-  return as_num(args[0], "inexact").to_inexact();
-}
-
-static Obj builtin_is_null(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "null?", 1, 1);
-  return args[0].is_null();
-}
-
-static Obj builtin_is_boolean(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "boolean?", 1, 1);
-  return args[0].is_bool();
-}
-
-static Obj builtin_is_number(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "number?", 1, 1);
-  return args[0].is_number();
-}
-
-static Obj builtin_is_integer(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "integer?", 1, 1);
-  return args[0].is_number() && args[0].as_number().is_integer();
-}
-
-static Obj builtin_is_pair(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "pair?", 1, 1);
-  return args[0].is_cons();
-}
-
-static Obj builtin_is_symbol(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "symbol?", 1, 1);
-  return args[0].is_symbol();
-}
-
-static Obj builtin_is_string(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "string?", 1, 1);
-  return args[0].is_string();
-}
-
-static Obj builtin_is_procedure(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "procedure?", 1, 1);
-  return args[0].is_procedure() || args[0].is_builtin();
-}
-
-static Obj builtin_is_list(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "list?", 1, 1);
-  return args[0].is_list();
-}
-
-static Obj builtin_is_void(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "void?", 1, 1);
-  return args[0].is_void();
-}
-
-static Obj builtin_is_promise(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "promise?", 1, 1);
-  return args[0].is_promise();
-}
-
-static Obj builtin_not(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "not", 1, 1);
-  return args[0].is_false();
-}
-
-static Obj builtin_void(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "void", 0, 0);
-  return Void{};
-}
-
-static Obj builtin_eq(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "eq?", 2, 2);
-  Obj a = args[0], b = args[1];
-  if (!a.same_type(b)) {
-    return false;
-  } else {
+  auto eq = [](Args raw, EvalContext &) {
+    auto [a, b] = match(raw, arg::any, arg::any);
+    if (!a.same_type(b)) {
+      return false;
+    }
     switch (a.type()) {
     case Type::Bool:
       return a.as_bool() == b.as_bool();
@@ -384,485 +477,272 @@ static Obj builtin_eq(const std::vector<Obj> &args, EvalContext &) {
     case Type::Void:
       return true;
     }
-  }
-  std::unreachable();
+    std::unreachable();
+  };
+  install("eq?", eq);
+  install("eqv?", eq);
+
+  install("equal?", [](Args raw, EvalContext &) {
+    auto [a, b] = match(raw, arg::any, arg::any);
+    return a.equals(b);
+  });
 }
 
-static Obj builtin_equal(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "equal?", 2, 2);
-  return args[0].equals(args[1]);
-}
-
-static Obj builtin_car(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "car", 1, 1);
-  return as_cons(args[0], "car")->car;
-}
-
-static Obj builtin_cdr(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "cdr", 1, 1);
-  return as_cons(args[0], "cdr")->cdr;
-}
-
-static Obj builtin_cons(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "cons", 2, 2);
-  return context.alloc<Cons>(args[0], args[1]);
-}
-
-static Obj builtin_list(const std::vector<Obj> &args, EvalContext &context) {
-  return list_from(args, context);
-}
-
-static Obj builtin_length(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "length", 1, 1);
-  if (!args[0].is_null() && !args[0].is_cons()) {
-    throw SchemeError("length: expected list, got " + args[0].type_name());
-  }
-  auto profile = args[0].list_profile();
-  if (!profile.is_proper) {
-    throw SchemeError("length: expected proper list");
-  }
-  return Number::exact(static_cast<int64_t>(profile.size), context);
-}
-
-static Obj builtin_list_ref(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "list-ref", 2, 2);
-  check_type(args[0], &Obj::is_cons, "pair", "list-ref");
-  size_t index = as_index(args[1], "list-ref");
-  Obj curr = args[0];
-  for (size_t i = 0; i < index; i += 1) {
-    if (!curr.is_cons()) {
-      throw SchemeError("list-ref: index out of range");
+static void install_lists(Installer install) {
+  install("car", [](Args raw, EvalContext &) {
+    return match(raw, arg::pair)->car;
+  });
+  install("cdr", [](Args raw, EvalContext &) {
+    return match(raw, arg::pair)->cdr;
+  });
+  install("cons", [](Args raw, EvalContext &context) {
+    auto [car, cdr] = match(raw, arg::any, arg::any);
+    return context.alloc<Cons>(car, cdr);
+  });
+  install("list", [](Args raw, EvalContext &context) {
+    return list_from(match(raw, rest(arg::any)), context);
+  });
+  install("length", [](Args raw, EvalContext &context) -> Obj {
+    Obj list = match(raw, arg::any);
+    if (!list.is_null() && !list.is_cons()) {
+      throw BuiltinError("expected list, got " + list.type_name());
     }
-    curr = curr.cdr();
-  }
-  if (!curr.is_cons()) {
-    throw SchemeError("list-ref: index out of range");
-  }
-  return curr.car();
-}
-
-static Obj builtin_set_car(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "set-car!", 2, 2);
-  as_cons(args[0], "set-car!")->car = args[1];
-  return Void{};
-}
-
-static Obj builtin_set_cdr(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "set-cdr!", 2, 2);
-  as_cons(args[0], "set-cdr!")->cdr = args[1];
-  return Void{};
-}
-
-static Obj builtin_string_length(const std::vector<Obj> &args,
-                                 EvalContext &context) {
-  check_arity(args, "string-length", 1, 1);
-  return Number::exact(
-      static_cast<int64_t>(as_string(args[0], "string-length")->data.size()),
-      context);
-}
-
-static Obj builtin_string_ref(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "string-ref", 2, 2);
-  const std::string &s = as_string(args[0], "string-ref")->data;
-  size_t index = as_index(args[1], "string-ref");
-  if (index >= s.size()) {
-    throw SchemeError("string-ref: index out of range");
-  }
-  return s[index];
-}
-
-static Obj builtin_substring(const std::vector<Obj> &args,
-                             EvalContext &context) {
-  check_arity(args, "substring", 2, 3);
-  const std::string &s = as_string(args[0], "substring")->data;
-  size_t start = as_index(args[1], "substring");
-  size_t end = s.size();
-  if (args.size() == 3) {
-    end = as_index(args[2], "substring");
-  }
-  if (start > end || end > s.size()) {
-    throw SchemeError("substring: index out of range");
-  }
-  return context.alloc<String>(s.substr(start, end - start));
-}
-
-static Obj builtin_string_append(const std::vector<Obj> &args,
-                                 EvalContext &context) {
-  return context.alloc<String>(std::ranges::to<std::string>(
-      args | std::views::transform([](Obj a) -> const std::string & {
-        return as_string(a, "string-append")->data;
-      }) |
-      std::views::join));
-}
-
-static Obj builtin_string_eq(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "string=?", 2, 2);
-  return as_string(args[0], "string=?")->data ==
-         as_string(args[1], "string=?")->data;
-}
-
-static Obj builtin_is_char(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "char?", 1, 1);
-  return args[0].is_char();
-}
-
-static Obj builtin_char_eq(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "char=?", 2, 2);
-  return as_char(args[0], "char=?") == as_char(args[1], "char=?");
-}
-
-static Obj builtin_char_to_integer(const std::vector<Obj> &args,
-                                   EvalContext &context) {
-  check_arity(args, "char->integer", 1, 1);
-  return Number::exact(static_cast<int64_t>(static_cast<unsigned char>(
-                           as_char(args[0], "char->integer"))),
-                       context);
-}
-
-static Obj builtin_integer_to_char(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "integer->char", 1, 1);
-  size_t value = as_index(args[0], "integer->char");
-  if (value > std::numeric_limits<unsigned char>::max()) {
-    throw SchemeError("integer->char: value out of range");
-  }
-  return static_cast<char>(static_cast<unsigned char>(value));
-}
-
-static Obj builtin_string_to_list(const std::vector<Obj> &args,
-                                  EvalContext &context) {
-  check_arity(args, "string->list", 1, 1);
-  return list_from(as_string(args[0], "string->list")->data, context);
-}
-
-static Obj builtin_list_to_string(const std::vector<Obj> &args,
-                                  EvalContext &context) {
-  check_arity(args, "list->string", 1, 1);
-  ListView list{args[0]};
-  if (!list.tail().is_null()) {
-    throw SchemeError("list->string: expected proper list");
-  }
-  return context.alloc<String>(std::ranges::to<std::string>(
-      list |
-      std::views::transform([](Obj c) { return as_char(c, "list->string"); })));
-}
-
-static Obj builtin_number_to_string(const std::vector<Obj> &args,
-                                    EvalContext &context) {
-  check_arity(args, "number->string", 1, 1);
-  return context.alloc<String>(
-      as_num(args[0], "number->string").to_string());
-}
-
-static Obj builtin_string_to_number(const std::vector<Obj> &args,
-                                    EvalContext &context) {
-  check_arity(args, "string->number", 1, 1);
-  const std::string &s = as_string(args[0], "string->number")->data;
-  try {
-    return Number::parse(s, context);
-  } catch (const SchemeError &) {
-    return false;
-  }
-}
-
-static Obj builtin_symbol_to_string(const std::vector<Obj> &args,
-                                    EvalContext &context) {
-  check_arity(args, "symbol->string", 1, 1);
-  check_type(args[0], &Obj::is_symbol, "symbol", "symbol->string");
-  return context.alloc<String>(args[0].as_symbol().name());
-}
-
-static Obj builtin_string_to_symbol(const std::vector<Obj> &args,
-                                    EvalContext &context) {
-  check_arity(args, "string->symbol", 1, 1);
-  return context.intern(as_string(args[0], "string->symbol")->data);
-}
-
-static Obj builtin_display(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "display", 1, 1);
-  context.output(args[0].to_display());
-  return Void{};
-}
-
-static Obj builtin_write(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "write", 1, 1);
-  context.output(args[0].to_write());
-  return Void{};
-}
-
-static Obj builtin_newline(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "newline", 0, 0);
-  context.output("\n");
-  return Void{};
-}
-
-static Obj builtin_read(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "read", 0, 0);
-  std::string input;
-  while (true) {
-    std::string line;
-    if (!std::getline(std::cin, line)) {
-      throw SchemeError("read: unexpected end of input");
+    auto profile = list.list_profile();
+    if (!profile.is_proper) {
+      throw BuiltinError("expected proper list");
     }
-    if (!input.empty()) {
-      input += '\n';
+    return Number::exact(static_cast<int64_t>(profile.size), context);
+  });
+  install("list-ref", [](Args raw, EvalContext &) -> Obj {
+    auto [pair, index] = match(raw, arg::pair, arg::index);
+    Obj current = pair;
+    for (size_t i = 0; i < index; i += 1) {
+      if (!current.is_cons()) {
+        throw BuiltinError("index out of range");
+      }
+      current = current.cdr();
     }
-    input += line;
-
-    ReadOutcome outcome = read_one(input, context);
-    if (auto *datum = std::get_if<ReadDatum>(&outcome)) {
-      return datum->value;
+    if (!current.is_cons()) {
+      throw BuiltinError("index out of range");
     }
-  }
+    return current.car();
+  });
+  install("set-car!", [](Args raw, EvalContext &) {
+    auto [pair, value] = match(raw, arg::pair, arg::any);
+    pair->car = value;
+    return Void{};
+  });
+  install("set-cdr!", [](Args raw, EvalContext &) {
+    auto [pair, value] = match(raw, arg::pair, arg::any);
+    pair->cdr = value;
+    return Void{};
+  });
 }
 
-static Obj builtin_is_vector(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "vector?", 1, 1);
-  return args[0].is_vector();
+static void install_strings(Installer install) {
+  install("string-length", [](Args raw, EvalContext &context) {
+    auto string = match(raw, arg::string);
+    return Number::exact(static_cast<int64_t>(string->data.size()), context);
+  });
+  install("string-ref", [](Args raw, EvalContext &) -> Obj {
+    auto [string, index] = match(raw, arg::string, arg::index);
+    return element_at(string->data, index);
+  });
+  install("substring", [](Args raw, EvalContext &context) -> Obj {
+    auto [string, start, requested_end] =
+        match(raw, arg::string, arg::index, optional(arg::index));
+    size_t end = requested_end.value_or(string->data.size());
+    if (start > end || end > string->data.size()) {
+      throw BuiltinError("index out of range");
+    }
+    return context.alloc<String>(string->data.substr(start, end - start));
+  });
+  install("string-append", [](Args raw, EvalContext &context) {
+    auto strings = match(raw, rest(arg::string));
+    return context.alloc<String>(std::ranges::to<std::string>(
+        strings | std::views::transform([](String *string)
+                                            -> const std::string & {
+          return string->data;
+        }) |
+        std::views::join));
+  });
+  install("string=?", [](Args raw, EvalContext &) {
+    auto [a, b] = match(raw, arg::string, arg::string);
+    return a->data == b->data;
+  });
+
+  install("char=?", [](Args raw, EvalContext &) {
+    auto [a, b] = match(raw, arg::character, arg::character);
+    return a == b;
+  });
+  install("char->integer", [](Args raw, EvalContext &context) {
+    auto character = static_cast<unsigned char>(match(raw, arg::character));
+    return Number::exact(static_cast<int64_t>(character), context);
+  });
+  install("integer->char", [](Args raw, EvalContext &) -> Obj {
+    size_t value = match(raw, arg::index);
+    if (value > std::numeric_limits<unsigned char>::max()) {
+      throw BuiltinError("value out of range");
+    }
+    return static_cast<char>(static_cast<unsigned char>(value));
+  });
+  install("string->list", [](Args raw, EvalContext &context) {
+    return list_from(match(raw, arg::string)->data, context);
+  });
+  install("list->string", [](Args raw, EvalContext &context) -> Obj {
+    ListView list{match(raw, arg::any)};
+    if (!list.tail().is_null()) {
+      throw BuiltinError("expected proper list");
+    }
+    return context.alloc<String>(std::ranges::to<std::string>(
+        list | std::views::transform([](Obj value) {
+          return arg::character.decode(value);
+        })));
+  });
+
+  install("number->string", [](Args raw, EvalContext &context) {
+    return context.alloc<String>(match(raw, arg::number).to_string());
+  });
+  install("string->number", [](Args raw, EvalContext &context) -> Obj {
+    auto string = match(raw, arg::string);
+    try {
+      return Number::parse(string->data, context);
+    } catch (const SchemeError &) {
+      return false;
+    }
+  });
+  install("symbol->string", [](Args raw, EvalContext &context) {
+    return context.alloc<String>(match(raw, arg::symbol).name());
+  });
+  install("string->symbol", [](Args raw, EvalContext &context) {
+    return context.intern(match(raw, arg::string)->data);
+  });
 }
 
-static Obj builtin_vector(const std::vector<Obj> &args, EvalContext &context) {
-  return context.alloc<Vector>(args);
+static void install_io(Installer install) {
+  install("display", [](Args raw, EvalContext &context) {
+    context.output(match(raw, arg::any).to_display());
+    return Void{};
+  });
+  install("write", [](Args raw, EvalContext &context) {
+    context.output(match(raw, arg::any).to_write());
+    return Void{};
+  });
+  install("newline", [](Args raw, EvalContext &context) {
+    match(raw);
+    context.output("\n");
+    return Void{};
+  });
+  install("read", [](Args raw, EvalContext &context) -> Obj {
+    match(raw);
+    std::string input;
+    while (true) {
+      std::string line;
+      if (!std::getline(std::cin, line)) {
+        throw BuiltinError("unexpected end of input");
+      }
+      if (!input.empty()) {
+        input += '\n';
+      }
+      input += line;
+
+      ReadOutcome outcome = read_one(input, context);
+      if (auto *datum = std::get_if<ReadDatum>(&outcome)) {
+        return datum->value;
+      }
+    }
+  });
 }
 
-static Obj builtin_make_vector(const std::vector<Obj> &args,
-                               EvalContext &context) {
-  check_arity(args, "make-vector", 1, 2);
-  size_t n = as_index(args[0], "make-vector");
-  Obj fill = args.size() > 1 ? args[1] : Obj(Number::exact(0, context));
-  return context.alloc<Vector>(std::vector<Obj>(n, fill));
+static void install_vectors(Installer install) {
+  install("vector", [](Args raw, EvalContext &context) {
+    return context.alloc<Vector>(match(raw, rest(arg::any)));
+  });
+  install("make-vector", [](Args raw, EvalContext &context) {
+    auto [size, requested_fill] =
+        match(raw, arg::index, optional(arg::any));
+    Obj fill =
+        requested_fill.value_or(Obj(Number::exact(0, context)));
+    return context.alloc<Vector>(std::vector<Obj>(size, fill));
+  });
+  install("vector-ref", [](Args raw, EvalContext &) -> Obj {
+    auto [vector, index] = match(raw, arg::vector, arg::index);
+    return element_at(vector->data, index);
+  });
+  install("vector-set!", [](Args raw, EvalContext &) {
+    auto [vector, index, value] =
+        match(raw, arg::vector, arg::index, arg::any);
+    element_at(vector->data, index) = value;
+    return Void{};
+  });
+  install("vector-length", [](Args raw, EvalContext &context) {
+    auto vector = match(raw, arg::vector);
+    return Number::exact(static_cast<int64_t>(vector->data.size()), context);
+  });
+  install("vector->list", [](Args raw, EvalContext &context) {
+    return list_from(match(raw, arg::vector)->data, context);
+  });
+  install("list->vector", [](Args raw, EvalContext &context) -> Obj {
+    ListView list{match(raw, arg::any)};
+    if (!list.tail().is_null()) {
+      throw BuiltinError("expected proper list");
+    }
+    return context.alloc<Vector>(std::ranges::to<std::vector>(list));
+  });
 }
 
-static Obj builtin_vector_ref(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "vector-ref", 2, 2);
-  Vector *v = as_vector(args[0], "vector-ref");
-  size_t i = as_index(args[1], "vector-ref");
-  if (i >= v->data.size()) {
-    throw SchemeError("vector-ref: index out of range");
-  }
-  return v->data[i];
-}
-
-static Obj builtin_vector_set(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "vector-set!", 3, 3);
-  Vector *v = as_vector(args[0], "vector-set!");
-  size_t i = as_index(args[1], "vector-set!");
-  if (i >= v->data.size()) {
-    throw SchemeError("vector-set!: index out of range");
-  }
-  v->data[i] = args[2];
-  return Void{};
-}
-
-static Obj builtin_vector_length(const std::vector<Obj> &args,
-                                 EvalContext &context) {
-  check_arity(args, "vector-length", 1, 1);
-  return Number::exact(
-      static_cast<int64_t>(as_vector(args[0], "vector-length")->data.size()),
-      context);
-}
-
-static Obj builtin_vector_to_list(const std::vector<Obj> &args,
-                                  EvalContext &context) {
-  check_arity(args, "vector->list", 1, 1);
-  return list_from(as_vector(args[0], "vector->list")->data, context);
-}
-
-static Obj builtin_list_to_vector(const std::vector<Obj> &args,
-                                  EvalContext &context) {
-  check_arity(args, "list->vector", 1, 1);
-  ListView list{args[0]};
-  if (!list.tail().is_null()) {
-    throw SchemeError("list->vector: expected proper list");
-  }
-  return context.alloc<Vector>(std::ranges::to<std::vector>(list));
-}
-
-static Obj builtin_force(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "force", 1, 1);
-  if (!args[0].is_promise()) {
-    return args[0];
-  }
-  return args[0].as_promise()->force(context);
-}
-
-static Obj builtin_error(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "error", 1, SIZE_MAX);
-  Error *err = context.alloc<Error>(
-      args[0].to_display(), list_from(args | std::views::drop(1), context));
-  throw SchemeError::raised(err);
-}
-
-static Obj builtin_raise(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "raise", 1, 1);
-  throw SchemeError::raised(args[0]);
-}
-
-static Obj builtin_is_error_object(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "error-object?", 1, 1);
-  return args[0].is_error();
-}
-
-static Obj builtin_error_object_message(const std::vector<Obj> &args,
-                                        EvalContext &context) {
-  check_arity(args, "error-object-message", 1, 1);
-  check_type(args[0], &Obj::is_error, "error object", "error-object-message");
-  return context.alloc<String>(args[0].as_error()->message);
-}
-
-static Obj builtin_error_object_irritants(const std::vector<Obj> &args,
-                                          EvalContext &) {
-  check_arity(args, "error-object-irritants", 1, 1);
-  check_type(args[0], &Obj::is_error, "error object", "error-object-irritants");
-  return args[0].as_error()->irritants;
-}
-
-static Obj builtin_eval(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "eval", 1, 1);
-  return context.eval_global(args[0]);
-}
-
-static Obj builtin_load(const std::vector<Obj> &args, EvalContext &context) {
-  check_arity(args, "load", 1, 1);
-  const std::string &path = as_string(args[0], "load")->data;
-
-  std::ifstream file(path);
-  if (!file) {
-    throw SchemeError("load: could not open " + path);
-  }
-  std::ostringstream buf;
-  buf << file.rdbuf();
-  std::string source = buf.str();
-
-  context.execute(source, ResultMode::Suppress);
-
-  return Obj(Void{});
-}
-
-static Obj builtin_file_exists(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "file-exists?", 1, 1);
-  return Obj(std::ifstream(as_string(args[0], "file-exists?")->data).good());
-}
-
-static Obj builtin_exit(const std::vector<Obj> &args, EvalContext &) {
-  check_arity(args, "exit", 0, 1);
-  int code = 0;
-  if (!args.empty()) {
-    code = static_cast<int>(as_index(args[0], "exit"));
-  }
-  std::exit(code);
+static void install_other(Installer install) {
+  install("force", [](Args raw, EvalContext &context) {
+    Obj value = match(raw, arg::any);
+    return value.is_promise() ? value.as_promise()->force(context) : value;
+  });
+  install("error", [](Args raw, EvalContext &context) -> Obj {
+    auto [message, irritants] = match(raw, arg::any, rest(arg::any));
+    auto error = context.alloc<Error>(message.to_display(),
+                                      list_from(irritants, context));
+    throw SchemeError::raised(error);
+  });
+  install("raise", [](Args raw, EvalContext &) -> Obj {
+    throw SchemeError::raised(match(raw, arg::any));
+  });
+  install("error-object-message", [](Args raw,
+                                                EvalContext &context) {
+    return context.alloc<String>(match(raw, arg::error)->message);
+  });
+  install("error-object-irritants", [](Args raw, EvalContext &) {
+    return match(raw, arg::error)->irritants;
+  });
+  install("eval", [](Args raw, EvalContext &context) {
+    return context.eval_global(match(raw, arg::any));
+  });
+  install("load", [](Args raw, EvalContext &context) -> Obj {
+    const std::string &path = match(raw, arg::string)->data;
+    std::ifstream file(path);
+    if (!file) {
+      throw BuiltinError("could not open " + path);
+    }
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
+    context.execute(buffer.str(), ResultMode::Suppress);
+    return Void{};
+  });
+  install("file-exists?", [](Args raw, EvalContext &) {
+    return std::ifstream(match(raw, arg::string)->data).good();
+  });
+  install("exit", [](Args raw, EvalContext &) -> Obj {
+    auto code = match(raw, optional(arg::index));
+    std::exit(code ? static_cast<int>(*code) : 0);
+  });
 }
 
 void install_builtins(EvalContext &context) {
-  auto install = [&](std::string_view name, Builtin::Fn fn) {
-    context.install_builtin(name, fn);
-  };
-
-  install("+", builtin_add);
-  install("-", builtin_sub);
-  install("*", builtin_mul);
-  install("/", builtin_div);
-
-  install("<", builtin_lt);
-  install(">", builtin_gt);
-  install("=", builtin_num_eq);
-  install("<=", builtin_le);
-  install(">=", builtin_ge);
-
-  install("abs", builtin_abs);
-  install("sqrt", builtin_sqrt);
-  install("sin", builtin_sin);
-  install("cos", builtin_cos);
-  install("log", builtin_log);
-  install("expt", builtin_expt);
-  install("ceiling", builtin_ceil);
-  install("floor", builtin_floor);
-  install("round", builtin_round);
-  install("max", builtin_max);
-  install("min", builtin_min);
-  install("quotient", builtin_quotient);
-  install("remainder", builtin_remainder);
-  install("modulo", builtin_modulo);
-  install("even?", builtin_even);
-  install("odd?", builtin_odd);
-  install("zero?", builtin_is_zero);
-  install("positive?", builtin_is_positive);
-  install("negative?", builtin_is_negative);
-  install("exact?", builtin_is_exact);
-  install("inexact?", builtin_is_inexact);
-  install("exact", builtin_exact);
-  install("inexact", builtin_inexact);
-  install("inexact->exact", builtin_exact);
-  install("exact->inexact", builtin_inexact);
-
-  install("null?", builtin_is_null);
-  install("boolean?", builtin_is_boolean);
-  install("number?", builtin_is_number);
-  install("integer?", builtin_is_integer);
-  install("pair?", builtin_is_pair);
-  install("symbol?", builtin_is_symbol);
-  install("string?", builtin_is_string);
-  install("procedure?", builtin_is_procedure);
-  install("list?", builtin_is_list);
-  install("void?", builtin_is_void);
-  install("promise?", builtin_is_promise);
-  install("not", builtin_not);
-  install("void", builtin_void);
-
-  install("eq?", builtin_eq);
-  install("eqv?", builtin_eq);
-  install("equal?", builtin_equal);
-
-  install("car", builtin_car);
-  install("cdr", builtin_cdr);
-  install("cons", builtin_cons);
-  install("list", builtin_list);
-  install("length", builtin_length);
-  install("list-ref", builtin_list_ref);
-  install("set-car!", builtin_set_car);
-  install("set-cdr!", builtin_set_cdr);
-
-  install("string-length", builtin_string_length);
-  install("string-ref", builtin_string_ref);
-  install("substring", builtin_substring);
-  install("string-append", builtin_string_append);
-  install("string=?", builtin_string_eq);
-
-  install("char?", builtin_is_char);
-  install("char=?", builtin_char_eq);
-  install("char->integer", builtin_char_to_integer);
-  install("integer->char", builtin_integer_to_char);
-  install("string->list", builtin_string_to_list);
-  install("list->string", builtin_list_to_string);
-
-  install("number->string", builtin_number_to_string);
-  install("string->number", builtin_string_to_number);
-  install("symbol->string", builtin_symbol_to_string);
-  install("string->symbol", builtin_string_to_symbol);
-
-  install("vector?", builtin_is_vector);
-  install("vector", builtin_vector);
-  install("make-vector", builtin_make_vector);
-  install("vector-ref", builtin_vector_ref);
-  install("vector-set!", builtin_vector_set);
-  install("vector-length", builtin_vector_length);
-  install("vector->list", builtin_vector_to_list);
-  install("list->vector", builtin_list_to_vector);
-
-  install("display", builtin_display);
-  install("write", builtin_write);
-  install("newline", builtin_newline);
-  install("read", builtin_read);
-
-  install("force", builtin_force);
-
-  install("error", builtin_error);
-  install("raise", builtin_raise);
-  install("error-object?", builtin_is_error_object);
-  install("error-object-message", builtin_error_object_message);
-  install("error-object-irritants", builtin_error_object_irritants);
-  install("eval", builtin_eval);
+  Installer install{context};
+  install_numbers(install);
+  install_objects(install);
+  install_lists(install);
+  install_strings(install);
+  install_vectors(install);
+  install_io(install);
+  install_other(install);
   context.install_builtin("apply", Builtin::Apply{});
-  install("load", builtin_load);
-  install("file-exists?", builtin_file_exists);
-  install("exit", builtin_exit);
 }

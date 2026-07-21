@@ -260,7 +260,8 @@ struct Vector : HeapEntity {
 };
 
 struct Builtin : HeapEntity {
-  using Fn = Obj (*)(const std::vector<Obj> &, EvalContext &);
+  using Fn =
+      std::function<Obj(const std::vector<Obj> &, EvalContext &)>;
   struct Apply {};
   using Implementation = std::variant<Fn, Apply>;
 
