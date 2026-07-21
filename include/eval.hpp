@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -12,6 +13,20 @@
 #include <vector>
 
 class EvalContext;
+
+class Arity {
+  size_t minimum;
+  std::optional<size_t> maximum;
+
+  Arity(size_t minimum, std::optional<size_t> maximum);
+
+public:
+  static Arity exactly(size_t count);
+  static Arity between(size_t minimum, size_t maximum);
+  static Arity at_least(size_t minimum);
+
+  std::optional<std::string> mismatch(size_t count) const;
+};
 
 enum class ResultMode {
   Emit,
@@ -65,5 +80,3 @@ Obj list_from(R &&elements, EvalContext &context, Obj tail = Null{}) {
         return context.alloc<Cons>(element, rest);
       });
 }
-
-void check_arity(size_t count, std::string_view name, size_t min, size_t max);

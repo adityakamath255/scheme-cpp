@@ -210,7 +210,9 @@ public:
 
 struct ListProfile {
   size_t size;
-  bool is_proper;
+  Obj tail;
+
+  bool is_proper() const { return tail.is_null(); }
 };
 
 void trace_child(Obj obj, std::vector<HeapEntity *> &worklist);
@@ -325,4 +327,8 @@ struct SchemeError : std::runtime_error {
   static SchemeError raised(Obj payload);
 
   Obj as_condition(EvalContext &context);
+};
+
+struct CallError : SchemeError {
+  using SchemeError::SchemeError;
 };

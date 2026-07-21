@@ -256,7 +256,7 @@ Number Number::mul(Number o, EvalContext &context) const {
 Number Number::div(Number o, EvalContext &context) const {
   if (is_exact() && o.is_exact()) {
     if (o.is_zero()) {
-      throw SchemeError("/: division by zero");
+      throw CallError("division by zero");
     }
     auto [q, r] = divmod(rep, o.rep, context);
     if (rep_is_zero(r)) {
@@ -295,7 +295,7 @@ Number Number::sqrt(EvalContext &context) const {
 
 Number Number::quotient(Number o, EvalContext &context) const {
   if (o.is_zero()) {
-    throw SchemeError("quotient: division by zero");
+    throw CallError("division by zero");
   }
 
   if (is_exact() && o.is_exact()) {
@@ -307,7 +307,7 @@ Number Number::quotient(Number o, EvalContext &context) const {
 }
 Number Number::remainder(Number o, EvalContext &context) const {
   if (o.is_zero()) {
-    throw SchemeError("remainder: division by zero");
+    throw CallError("division by zero");
   }
 
   if (is_exact() && o.is_exact()) {
@@ -320,7 +320,7 @@ Number Number::remainder(Number o, EvalContext &context) const {
 
 Number Number::modulo(Number o, EvalContext &context) const {
   if (o.is_zero()) {
-    throw SchemeError("modulo: division by zero");
+    throw CallError("division by zero");
   }
 
   Number r = remainder(o, context);
@@ -360,10 +360,10 @@ Number Number::to_exact(EvalContext &context) const {
   else {
     double d = std::get<double>(rep);
     if (!std::isfinite(d) || std::trunc(d) != d) {
-      throw SchemeError("inexact->exact: not an integer");
+      throw CallError("not an integer");
     }
     if (d < -int64_magnitude || d >= int64_magnitude) {
-      throw SchemeError("inexact->exact: magnitude too large");
+      throw CallError("magnitude too large");
     }
     return Number(of_i64(static_cast<int64_t>(d), context));
   }

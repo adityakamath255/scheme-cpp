@@ -36,6 +36,12 @@
         (guard (e (#t (error-object? e))) (vector-ref (vector) 0)))
 (assert "division by zero caught" "/: division by zero"
         (guard (e (#t (error-object-message e))) (/ 1 0)))
+(assert "builtin alias error name" "exact: not an integer"
+        (guard (e (#t (error-object-message e))) (exact 1.5)))
+(assert "unbounded arity message" "-: expected 1 or more arguments, got 0"
+        (guard (e (#t (error-object-message e))) (-)))
+(assert "nested builtin keeps origin" "car: expected pair, got number"
+        (guard (e (#t (error-object-message e))) (eval '(car 5))))
 (assert "undefined variable caught" 'caught
         (guard (e (#t 'caught)) nonexistent-variable))
 (assert "native reraise keeps message" "car: expected pair, got null"

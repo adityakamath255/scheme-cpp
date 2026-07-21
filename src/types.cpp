@@ -351,11 +351,7 @@ ListView::iterator ListView::begin() const { return iterator{head}; }
 std::default_sentinel_t ListView::end() const { return {}; }
 
 Obj ListView::tail() const {
-  Obj cur = head;
-  while (cur.is_cons()) {
-    cur = cur.cdr();
-  }
-  return cur;
+  return head.list_profile().tail;
 }
 
 ListProfile Obj::list_profile() const {
@@ -365,10 +361,10 @@ ListProfile Obj::list_profile() const {
     len += 1;
     curr = curr.cdr();
   }
-  return {.size = len, .is_proper = curr.is_null()};
+  return {.size = len, .tail = curr};
 }
 
-bool Obj::is_list() const { return list_profile().is_proper; }
+bool Obj::is_list() const { return list_profile().is_proper(); }
 
 String::String(std::string data) : data{std::move(data)} {}
 

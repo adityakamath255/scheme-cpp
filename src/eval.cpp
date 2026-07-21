@@ -2,6 +2,7 @@
 
 #include <format>
 #include <ranges>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 
@@ -39,24 +40,49 @@ struct TailCall {
 
 using EvalResult = std::variant<Obj, TailCall>;
 
-void check_arity(size_t count, std::string_view name, size_t min, size_t max) {
-  if (count < min || count > max) {
-    throw SchemeError(std::format(
-        "{}: expected {} arguments, got {}", name,
-        (min == max ? std::to_string(min) : std::format("{}-{}", min, max)),
-        count));
+Arity::Arity(size_t minimum, std::optional<size_t> maximum)
+    : minimum{minimum}, maximum{maximum} {
+  if (maximum && *maximum < minimum) {
+    throw std::invalid_argument("arity maximum is less than minimum");
   }
 }
 
-static void check_arity(Obj rest, std::string_view name, size_t min,
-                        size_t max) {
+Arity Arity::exactly(size_t count) { return Arity{count, count}; }
+
+Arity Arity::between(size_t minimum, size_t maximum) {
+  return Arity{minimum, maximum};
+}
+
+Arity Arity::at_least(size_t minimum) {
+  return Arity{minimum, std::nullopt};
+}
+
+std::optional<std::string> Arity::mismatch(size_t count) const {
+  if (count >= minimum && (!maximum || count <= *maximum)) {
+    return std::nullopt;
+  }
+
+  std::string expected;
+  if (!maximum) {
+    expected = std::format("{} or more", minimum);
+  } else if (*maximum == minimum) {
+    expected = std::to_string(minimum);
+  } else {
+    expected = std::format("{}-{}", minimum, *maximum);
+  }
+  return std::format("expected {} arguments, got {}", expected, count);
+}
+
+static void check_arity(Obj rest, std::string_view name, Arity arity) {
   auto profile = rest.list_profile();
 
-  if (!profile.is_proper) {
+  if (!profile.is_proper()) {
     throw SchemeError(std::format("{}: improper argument list", name));
   }
 
-  check_arity(profile.size, name, min, max);
+  if (auto error = arity.mismatch(profile.size)) {
+    throw SchemeError(std::format("{}: {}", name, *error));
+  }
 }
 
 static std::vector<Obj> eval_args(Obj list, Env &env, EvalContext &context) {
@@ -94,11 +120,10 @@ Formals Formals::parse(Obj formals) {
 
 void Formals::bind(Env &env, const std::vector<Obj> &args,
                    EvalContext &context) const {
-  if (args.size() < fixed.size()) {
-    throw SchemeError("too few arguments");
-  }
-  if (!rest && args.size() > fixed.size()) {
-    throw SchemeError("too many arguments");
+  auto arity = rest ? Arity::at_least(fixed.size())
+                    : Arity::exactly(fixed.size());
+  if (auto error = arity.mismatch(args.size())) {
+    throw SchemeError(*error);
   }
 
   for (size_t i = 0; i < fixed.size(); i += 1) {
@@ -209,12 +234,12 @@ static Obj eval_quasiquote(Obj obj, Env &env, EvalContext &context) {
 }
 
 static EvalResult eval_quote(Obj rest) {
-  check_arity(rest, "quote", 1, 1);
+  check_arity(rest, "quote", Arity::exactly(1));
   return rest.car();
 }
 
 static EvalResult eval_if(Obj rest, Env &env, EvalContext &context) {
-  check_arity(rest, "if", 2, 3);
+  check_arity(rest, "if", Arity::between(2, 3));
   Obj pred = context.eval(rest.car(), env);
 
   if (pred.is_true()) {
@@ -231,7 +256,7 @@ static EvalResult eval_if(Obj rest, Env &env, EvalContext &context) {
 }
 
 static EvalResult eval_define(Obj rest, Env &env, EvalContext &context) {
-  check_arity(rest, "define", 1, SIZE_MAX);
+  check_arity(rest, "define", Arity::at_least(1));
   Obj target = rest.car();
 
   if (target.is_cons()) {
@@ -251,7 +276,7 @@ static EvalResult eval_define(Obj rest, Env &env, EvalContext &context) {
     if (rest.cdr().is_null()) {
       env.define(sym, Void{});
     } else {
-      check_arity(rest, "define", 2, 2);
+      check_arity(rest, "define", Arity::exactly(2));
       env.define(sym, context.eval(rest.cdr().car(), env));
     }
     return Obj(Void{});
@@ -264,7 +289,7 @@ static EvalResult eval_define(Obj rest, Env &env, EvalContext &context) {
 }
 
 static EvalResult eval_define_macro(Obj rest, Env &env, EvalContext &context) {
-  check_arity(rest, "define-macro", 2, SIZE_MAX);
+  check_arity(rest, "define-macro", Arity::at_least(2));
   Obj target = rest.car();
 
   if (target.is_cons()) {
@@ -277,7 +302,7 @@ static EvalResult eval_define_macro(Obj rest, Env &env, EvalContext &context) {
   }
 
   else if (target.is_symbol()) {
-    check_arity(rest, "define-macro", 2, 2);
+    check_arity(rest, "define-macro", Arity::exactly(2));
     Obj val = context.eval(rest.cdr().car(), env);
 
     if (!val.is_procedure()) {
@@ -299,7 +324,7 @@ static EvalResult eval_define_macro(Obj rest, Env &env, EvalContext &context) {
 }
 
 static EvalResult eval_set(Obj rest, Env &env, EvalContext &context) {
-  check_arity(rest, "set!", 2, 2);
+  check_arity(rest, "set!", Arity::exactly(2));
   if (!rest.car().is_symbol()) {
     throw SchemeError("set!: expected symbol, got " +
                       rest.car().type_name());
@@ -314,7 +339,7 @@ static EvalResult eval_set(Obj rest, Env &env, EvalContext &context) {
 }
 
 static EvalResult eval_lambda(Obj rest, Env &env, EvalContext &context) {
-  check_arity(rest, "lambda", 2, SIZE_MAX);
+  check_arity(rest, "lambda", Arity::at_least(2));
   Obj body = wrap_body(rest.cdr(), context);
   return Obj(context.alloc<Procedure>(Formals::parse(rest.car()), body, env,
                                          ProcedureKind::Function));
@@ -335,7 +360,7 @@ static EvalResult eval_let(Obj rest, Env &env, EvalContext &context,
   const char *name = kind == LetKind::Star  ? "let*"
                      : kind == LetKind::Rec ? "letrec"
                                             : "let";
-  check_arity(rest, name, 2, SIZE_MAX);
+  check_arity(rest, name, Arity::at_least(2));
   Obj bindings = rest.car();
   Obj body_list = rest.cdr();
   Env &new_env = *context.alloc<Env>(&env);
@@ -370,7 +395,7 @@ static EvalResult eval_let(Obj rest, Env &env, EvalContext &context,
 static EvalResult eval_named_let(Obj rest, Env &env, EvalContext &context) {
   Symbol name = rest.car().as_symbol();
   Obj spec = rest.cdr();
-  check_arity(spec, "let", 2, SIZE_MAX);
+  check_arity(spec, "let", Arity::at_least(2));
   Obj bindings = spec.car();
   Obj body = wrap_body(spec.cdr(), context);
 
@@ -403,7 +428,7 @@ enum class ConditionalKind {
 static EvalResult eval_conditional(Obj rest, Env &env, EvalContext &context,
                                    ConditionalKind kind) {
   bool is_unless = kind == ConditionalKind::Unless;
-  check_arity(rest, is_unless ? "unless" : "when", 1, SIZE_MAX);
+  check_arity(rest, is_unless ? "unless" : "when", Arity::at_least(1));
   Obj test = context.eval(rest.car(), env);
   bool go = is_unless ? test.is_false() : test.is_true();
   Obj body = rest.cdr();
@@ -478,7 +503,7 @@ static EvalResult eval_cond(Obj clauses, Env &env, EvalContext &context) {
 }
 
 static EvalResult eval_case(Obj rest, Env &env, EvalContext &context) {
-  check_arity(rest, "case", 1, SIZE_MAX);
+  check_arity(rest, "case", Arity::at_least(1));
   Obj key = context.eval(rest.car(), env);
 
   return eval_clauses(
@@ -524,7 +549,7 @@ static EvalResult eval_logical(Obj rest, Env &env, EvalContext &context,
 }
 
 static EvalResult eval_guard(Obj rest, Env &env, EvalContext &context) {
-  check_arity(rest, "guard", 2, SIZE_MAX);
+  check_arity(rest, "guard", Arity::at_least(2));
   Obj spec = rest.car();
 
   if (!spec.is_cons() || !spec.car().is_symbol()) {
@@ -548,12 +573,12 @@ static EvalResult eval_guard(Obj rest, Env &env, EvalContext &context) {
 }
 
 static EvalResult eval_delay(Obj rest, Env &env, EvalContext &context) {
-  check_arity(rest, "delay", 1, 1);
+  check_arity(rest, "delay", Arity::exactly(1));
   return Obj(context.alloc<Promise>(rest.car(), env));
 }
 
 static EvalResult eval_cons_stream(Obj rest, Env &env, EvalContext &context) {
-  check_arity(rest, "cons-stream", 2, 2);
+  check_arity(rest, "cons-stream", Arity::exactly(2));
   Obj head = context.eval(rest.car(), env);
   return Obj(context.alloc<Cons>(
       head, context.alloc<Promise>(rest.cdr().car(), env)));
@@ -561,7 +586,7 @@ static EvalResult eval_cons_stream(Obj rest, Env &env, EvalContext &context) {
 
 static EvalResult eval_quasiquote_form(Obj rest, Env &env,
                                        EvalContext &context) {
-  check_arity(rest, "quasiquote", 1, 1);
+  check_arity(rest, "quasiquote", Arity::exactly(1));
   return eval_quasiquote(rest.car(), env, context);
 }
 

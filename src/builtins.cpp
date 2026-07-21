@@ -23,11 +23,6 @@ namespace {
 
 using Args = const std::vector<Obj> &;
 
-class BuiltinError : public std::runtime_error {
-public:
-  using std::runtime_error::runtime_error;
-};
-
 enum class PatternKind { Required, Optional, Rest };
 
 template <typename T> struct ObjectPattern {
@@ -40,7 +35,7 @@ template <typename T> struct ObjectPattern {
     try {
       return (obj.*accessor)();
     } catch (const SchemeError &error) {
-      throw BuiltinError(error.what());
+      throw CallError(error.what());
     }
   }
 
@@ -83,7 +78,7 @@ constexpr IndexPattern index;
 size_t IndexPattern::parse(Args raw, size_t &position) const {
   auto value = arg::number.decode(raw[position++]).to_size();
   if (!value) {
-    throw BuiltinError("expected non-negative integer");
+    throw CallError("expected non-negative integer");
   }
   return *value;
 }
@@ -160,12 +155,10 @@ template <typename... Patterns> auto match(Args raw, Patterns... patterns) {
       (size_t{0} + ... + (Patterns::kind == PatternKind::Required ? 1 : 0));
   constexpr bool unbounded =
       ((Patterns::kind == PatternKind::Rest) || ... || false);
-  constexpr size_t max = unbounded ? SIZE_MAX : sizeof...(Patterns);
-  if (raw.size() < min || raw.size() > max) {
-    auto expected = min == max ? std::to_string(min)
-                               : std::format("{}-{}", min, max);
-    throw BuiltinError(
-        std::format("expected {} arguments, got {}", expected, raw.size()));
+  auto arity = unbounded ? Arity::at_least(min)
+                         : Arity::between(min, sizeof...(Patterns));
+  if (auto error = arity.mismatch(raw.size())) {
+    throw CallError(*error);
   }
 
   size_t position = 0;
@@ -193,7 +186,7 @@ public:
                        Args raw, EvalContext &context) -> Obj {
       try {
         return implementation(raw, context);
-      } catch (const BuiltinError &error) {
+      } catch (const CallError &error) {
         throw SchemeError(std::format("{}: {}", name, error.what()));
       }
     };
@@ -232,7 +225,7 @@ static Number minmax(Number first, const std::vector<Number> &rest,
 template <typename Container>
 static decltype(auto) element_at(Container &container, size_t index) {
   if (index >= container.size()) {
-    throw BuiltinError("index out of range");
+    throw CallError("index out of range");
   }
   return container[index];
 }
@@ -505,11 +498,11 @@ static void install_lists(Installer install) {
   install("length", [](Args raw, EvalContext &context) -> Obj {
     Obj list = match(raw, arg::any);
     if (!list.is_null() && !list.is_cons()) {
-      throw BuiltinError("expected list, got " + list.type_name());
+      throw CallError("expected list, got " + list.type_name());
     }
     auto profile = list.list_profile();
-    if (!profile.is_proper) {
-      throw BuiltinError("expected proper list");
+    if (!profile.is_proper()) {
+      throw CallError("expected proper list");
     }
     return Number::exact(static_cast<int64_t>(profile.size), context);
   });
@@ -518,12 +511,12 @@ static void install_lists(Installer install) {
     Obj current = pair;
     for (size_t i = 0; i < index; i += 1) {
       if (!current.is_cons()) {
-        throw BuiltinError("index out of range");
+        throw CallError("index out of range");
       }
       current = current.cdr();
     }
     if (!current.is_cons()) {
-      throw BuiltinError("index out of range");
+      throw CallError("index out of range");
     }
     return current.car();
   });
@@ -553,7 +546,7 @@ static void install_strings(Installer install) {
         match(raw, arg::string, arg::index, optional(arg::index));
     size_t end = requested_end.value_or(string->data.size());
     if (start > end || end > string->data.size()) {
-      throw BuiltinError("index out of range");
+      throw CallError("index out of range");
     }
     return context.alloc<String>(string->data.substr(start, end - start));
   });
@@ -582,7 +575,7 @@ static void install_strings(Installer install) {
   install("integer->char", [](Args raw, EvalContext &) -> Obj {
     size_t value = match(raw, arg::index);
     if (value > std::numeric_limits<unsigned char>::max()) {
-      throw BuiltinError("value out of range");
+      throw CallError("value out of range");
     }
     return static_cast<char>(static_cast<unsigned char>(value));
   });
@@ -592,7 +585,7 @@ static void install_strings(Installer install) {
   install("list->string", [](Args raw, EvalContext &context) -> Obj {
     ListView list{match(raw, arg::any)};
     if (!list.tail().is_null()) {
-      throw BuiltinError("expected proper list");
+      throw CallError("expected proper list");
     }
     return context.alloc<String>(std::ranges::to<std::string>(
         list | std::views::transform([](Obj value) {
@@ -639,7 +632,7 @@ static void install_io(Installer install) {
     while (true) {
       std::string line;
       if (!std::getline(std::cin, line)) {
-        throw BuiltinError("unexpected end of input");
+        throw CallError("unexpected end of input");
       }
       if (!input.empty()) {
         input += '\n';
@@ -685,7 +678,7 @@ static void install_vectors(Installer install) {
   install("list->vector", [](Args raw, EvalContext &context) -> Obj {
     ListView list{match(raw, arg::any)};
     if (!list.tail().is_null()) {
-      throw BuiltinError("expected proper list");
+      throw CallError("expected proper list");
     }
     return context.alloc<Vector>(std::ranges::to<std::vector>(list));
   });
@@ -719,7 +712,7 @@ static void install_other(Installer install) {
     const std::string &path = match(raw, arg::string)->data;
     std::ifstream file(path);
     if (!file) {
-      throw BuiltinError("could not open " + path);
+      throw CallError("could not open " + path);
     }
     std::ostringstream buffer;
     buffer << file.rdbuf();
