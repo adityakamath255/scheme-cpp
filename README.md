@@ -9,28 +9,64 @@ interning.
 Requires CMake 3.16+ and a C++23 compiler.
 
 ```bash
-cmake -S cli -B cli/build
-cmake --build cli/build
+cmake -S . -B build
+cmake --build build
 ```
 
-The binary is `cli/build/scheme`.
+The binary is `build/cli/scheme`.
 
 ## Usage
 
 ```bash
-./cli/build/scheme              # start the REPL
-./cli/build/scheme file.scm     # run a file and exit
-./cli/build/scheme -i file.scm  # run a file, then enter the REPL
+./build/cli/scheme              # start the REPL
+./build/cli/scheme file.scm     # run a file and exit
+./build/cli/scheme -i file.scm  # run a file, then enter the REPL
 ```
 
 With no file on a terminal it starts the REPL. Piped on stdin
-(`echo '(+ 1 2)' | ./cli/build/scheme`) it runs the input and exits. `-i` (or
+(`echo '(+ 1 2)' | ./build/cli/scheme`) it runs the input and exits. `-i` (or
 `--interactive`) keeps the REPL open after a file.
 
 The REPL supports multi-line input (brackets are tracked across lines), line
 editing, and history via
 [replxx](https://github.com/AmokHuginnsson/replxx). Ctrl+D exits. Ctrl+C clears
 the current input.
+
+## Library
+
+The CLI and WebAssembly frontends use the same static library. Projects that
+include this repository can link its CMake alias:
+
+```cmake
+add_subdirectory(path/to/scheme-cpp)
+target_link_libraries(my-program PRIVATE scheme::scheme)
+```
+
+When included as a subdirectory, the CLI and tests are disabled by default.
+The public API is `include/scheme/session.hpp`:
+
+```cpp
+#include <scheme/session.hpp>
+
+#include <iostream>
+#include <variant>
+
+int main() {
+  scheme::Session session;
+  session.execute("(display (+ 1 2))", [](const scheme::Event &event) {
+    if (auto *output = std::get_if<scheme::Output>(&event)) {
+      std::cout << output->text;
+    }
+  });
+}
+```
+
+`Session::run` accepts incomplete input and reports how many source bytes it
+consumed. `Session::execute` rejects incomplete input. Events are emitted
+synchronously, and definitions persist for the lifetime of a session. A
+session cannot be called recursively from its own event callback. Evaluation
+failures throw `scheme::EvaluationError`; the Scheme `exit` procedure throws
+`scheme::ExitRequest`, leaving process termination to the host application.
 
 ## Web
 
@@ -222,7 +258,7 @@ equality.
 ## Tests
 
 ```bash
-./run_tests.sh
+ctest --test-dir build --output-on-failure
 ```
 
 Tests are written in Scheme using a small framework (`tests/framework.scm`)
@@ -234,10 +270,16 @@ vector allocation).
 
 ## Source layout
 
-The core interpreter lives in `src/`:
+The public library header is `include/scheme/session.hpp`. The implementation
+lives in `src/`; its headers are private:
 
-- `read.cpp` - pull-based reader. It tokenizes as needed while recursively
-  producing Scheme datums and reports incomplete input to interactive clients.
+- `lexer.cpp` - pull-based tokenization, including nested comments and
+  incomplete tokens.
+- `reader.cpp` - recursive datum construction and incomplete-input reporting.
+- `parser.cpp` - syntax validation, macro expansion, and expression
+  construction.
+- `expression.cpp` - expression evaluation, tracing, procedure application,
+  and tail-call production.
 - `types.cpp` - the `Obj` class wrapping
   `std::variant<bool, char, Number, Symbol, String*, Cons*, Vector*,
   Procedure*, Builtin*, Promise*, Error*, Null, Void>`, where `Number` is a
@@ -247,17 +289,20 @@ The core interpreter lives in `src/`:
 - `number.cpp` - the `Number` type: exact fixnums that auto-promote to
   libtommath bignums on overflow, plus inexact doubles. Arithmetic, comparison,
   and exact/inexact conversion.
-- `eval.cpp` - evaluation. `EvalContext` owns one active execution, dispatches
-  special forms, emits output, and runs the tail call trampoline.
-- `builtins.cpp` - all built-in procedure implementations, registered as raw function pointers.
-- `preamble.cpp` - the standard library, stored as a string literal and evaluated at startup.
+- `eval.cpp` - arity and formal-parameter handling plus the tail-call
+  trampoline. `EvalContext` owns one active execution.
+- `builtins.cpp` - built-in procedure registration, argument decoding, and
+  implementations.
+- `preamble.cpp` - the standard library, stored as a string literal and
+  evaluated at startup.
 - `session.cpp` - the public `scheme::Session` boundary, its private state, and
   the source execution loop.
   `SessionState` owns the managed heap, symbol table, global environment, and
   garbage collector. It initializes the interpreter and exposes incremental
   and strict execution.
 
-The two front-ends use `scheme::Session` through `include/session.hpp`:
+The two frontends use `scheme::Session` through
+`include/scheme/session.hpp`:
 
 - `cli/main.cpp` - argument parsing, file execution, and the replxx REPL loop.
 - `web/main.cpp` - wraps `scheme::Session` with Embind (see [Web](#web)),
@@ -269,7 +314,7 @@ The two front-ends use `scheme::Session` through `include/session.hpp`:
 - No continuations (`call/cc`).
 - Numbers are exact integers (fixnum, auto-promoting to arbitrary-precision
   bignum) or inexact reals (IEEE 754 double). No rationals or complex numbers.
-- No ports. I/O is stdin/stdout only.
+- No ports. `read` uses stdin; output is emitted through the session callback.
 - Deep non-tail recursion is bounded by the C stack: the native binary handles
   a few thousand frames, and in the browser the wasm build (8MB stack) is
   capped lower by the JavaScript engine's own call-stack limit. Overflowing it

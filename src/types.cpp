@@ -1,6 +1,6 @@
 #include "types.hpp"
 #include "eval.hpp"
-#include "expr.hpp"
+#include "expression.hpp"
 
 #include <algorithm>
 #include <format>
@@ -470,7 +470,7 @@ static std::string render_condition(Obj payload) {
 }
 
 SchemeError::SchemeError(const std::string &message)
-    : std::runtime_error(message), payload{} {}
+    : scheme::EvaluationError(message), payload{} {}
 
 SchemeError SchemeError::raised(Obj payload) {
   SchemeError e(render_condition(payload));

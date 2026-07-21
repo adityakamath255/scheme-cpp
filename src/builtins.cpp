@@ -1,13 +1,12 @@
 #include "builtins.hpp"
 #include "eval.hpp"
-#include "read.hpp"
+#include "reader.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <compare>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <format>
 #include <fstream>
 #include <iostream>
@@ -724,7 +723,7 @@ static void install_other(Installer install) {
   });
   install("exit", [](Args raw, EvalContext &) -> Obj {
     auto code = match(raw, optional(arg::index));
-    std::exit(code ? static_cast<int>(*code) : 0);
+    throw scheme::ExitRequest(code ? static_cast<int>(*code) : 0);
   });
 }
 

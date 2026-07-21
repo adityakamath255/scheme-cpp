@@ -1,9 +1,9 @@
-#include "session.hpp"
+#include "scheme/session.hpp"
 
 #include "builtins.hpp"
 #include "eval.hpp"
 #include "preamble.hpp"
-#include "read.hpp"
+#include "reader.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -36,6 +36,17 @@ public:
   void execute(std::string_view source, const Emit &emit);
 };
 
+}
+
+scheme::ExitRequest::ExitRequest(int status) noexcept
+    : requested_status{status} {}
+
+int scheme::ExitRequest::status() const noexcept {
+  return requested_status;
+}
+
+const char *scheme::ExitRequest::what() const noexcept {
+  return "Scheme program requested exit";
 }
 
 namespace {
@@ -182,6 +193,10 @@ void scheme::SessionState::execute(std::string_view source,
 scheme::Session::Session() : state{std::make_unique<SessionState>()} {}
 
 scheme::Session::~Session() = default;
+
+scheme::Session::Session(Session &&) noexcept = default;
+
+scheme::Session &scheme::Session::operator=(Session &&) noexcept = default;
 
 scheme::RunResult scheme::Session::run(
     std::string_view source,

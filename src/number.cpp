@@ -1,5 +1,7 @@
-#include "types.hpp"
+#include "number.hpp"
+
 #include "eval.hpp"
+#include "types.hpp"
 
 #include <tommath.h>
 

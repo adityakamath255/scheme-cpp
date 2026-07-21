@@ -1,4 +1,4 @@
-#include "session.hpp"
+#include "scheme/session.hpp"
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 #include <emscripten.h>

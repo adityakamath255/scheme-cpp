@@ -7,11 +7,17 @@ endif()
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/core.cmake)
 
-add_executable(scheme main.cpp)
-scheme_core(scheme)
+if(NOT TARGET scheme)
+  scheme_library(scheme)
+endif()
+
+add_executable(scheme_wasm main.cpp)
+set_target_properties(scheme_wasm PROPERTIES OUTPUT_NAME scheme)
+target_link_libraries(scheme_wasm PRIVATE scheme::scheme)
 
 target_compile_options(scheme PRIVATE -fexceptions)
-target_link_options(scheme PRIVATE
+target_compile_options(scheme_wasm PRIVATE -fexceptions)
+target_link_options(scheme_wasm PRIVATE
   -lembind
   -sMODULARIZE=1
   -sEXPORT_NAME=createScheme

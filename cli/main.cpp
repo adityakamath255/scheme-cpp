@@ -1,4 +1,4 @@
-#include "session.hpp"
+#include "scheme/session.hpp"
 #include <replxx.hxx>
 #include <exception>
 #include <fstream>
@@ -51,6 +51,9 @@ static void repl(scheme::Session &session) {
       if (!incomplete) {
         input.clear();
       }
+    }
+    catch (const scheme::ExitRequest &) {
+      throw;
     }
     catch (const std::exception &e) {
       std::cerr << "error: " << e.what() << "\n";
@@ -108,6 +111,9 @@ int main(int argc, char *argv[]) {
     try {
       session.execute(buf.str(), print_batch_event);
     }
+    catch (const scheme::ExitRequest &request) {
+      return request.status();
+    }
     catch (const std::exception &e) {
       std::cerr << "error: " << e.what() << "\n";
       return 1;
@@ -120,6 +126,9 @@ int main(int argc, char *argv[]) {
     try {
       session.execute(buf.str(), print_batch_event);
     }
+    catch (const scheme::ExitRequest &request) {
+      return request.status();
+    }
     catch (const std::exception &e) {
       std::cerr << "error: " << e.what() << "\n";
       return 1;
@@ -128,6 +137,11 @@ int main(int argc, char *argv[]) {
 
   if (interactive || (!filename && isatty(STDIN_FILENO))) {
     std::cout << "Scheme - Ctrl+D to exit, Ctrl+C to clear\n\n";
-    repl(session);
+    try {
+      repl(session);
+    }
+    catch (const scheme::ExitRequest &request) {
+      return request.status();
+    }
   }
 }

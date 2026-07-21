@@ -1,6 +1,6 @@
 #include "eval.hpp"
-#include "expr_nodes.inc"
-#include "quasiquote.inc"
+#include "expression.hpp"
+#include "quasiquote.hpp"
 
 #include <format>
 #include <ranges>

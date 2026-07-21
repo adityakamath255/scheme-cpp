@@ -1,4 +1,5 @@
 /cli/build
+/build
 /context/
 /.cache/
 /emsdk/
