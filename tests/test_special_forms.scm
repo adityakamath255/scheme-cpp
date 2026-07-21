@@ -56,6 +56,20 @@
 
 (assert "quasiquote" '(1 2 3) (let ((x 2)) `(1 ,x 3)))
 (assert "quasiquote vector" #(1 2 3) (let ((x 2)) `#(1 ,x 3)))
+(assert "quasiquote dotted" '(1 . 2) (let ((x 2)) `(1 . ,x)))
+(assert "quasiquote vector splice" #(1 2 3 4)
+        (let ((xs '(2 3))) `#(1 ,@xs 4)))
+(assert "nested quasiquote"
+        '(outer (quasiquote (inner (unquote x))) 7)
+        (let ((x 7)) `(outer `(inner ,x) ,x)))
+(assert "nested double unquote"
+        '(quasiquote ((unquote 7)))
+        (let ((x 7)) ``(,,x)))
+(assert "nested splice remains syntax"
+        '(quasiquote (1 (unquote-splicing xs)))
+        (let ((xs '(2 3))) ``(1 ,@xs)))
+(assert "unplaced splice rejected" 'caught
+        (guard (e (#t 'caught)) (eval '`,@'(1 2))))
 
 (define (f . args) args)
 (assert "variadic" '(1 2 3) (f 1 2 3))

@@ -1,5 +1,6 @@
 #include "types.hpp"
 #include "eval.hpp"
+#include "expr.hpp"
 
 #include <algorithm>
 #include <format>
@@ -268,9 +269,7 @@ static std::string render(Obj obj, bool write) {
     return "#(" + join_elems(obj.as_vector()->data, write) + ")";
 
   case Type::Procedure:
-    return obj.as_procedure()->kind == ProcedureKind::Macro
-      ? "#<macro>"
-      : "#<procedure>";
+    return "#<procedure>";
 
   case Type::Builtin:
     return "#<procedure>";
@@ -368,7 +367,7 @@ bool Obj::is_list() const { return list_profile().is_proper(); }
 
 String::String(std::string data) : data{std::move(data)} {}
 
-void trace_child(Obj obj, std::vector<HeapEntity *> &worklist) {
+void trace_child(Obj obj, std::vector<const HeapEntity *> &worklist) {
   if (auto *entity = obj.heap_entity()) {
     worklist.push_back(entity);
   }
@@ -397,7 +396,7 @@ bool Env::set(Symbol name, Obj value) {
   return parent && parent->set(name, value);
 }
 
-void Env::trace(std::vector<HeapEntity *> &worklist) const {
+void Env::trace(std::vector<const HeapEntity *> &worklist) const {
   for (const auto &[_, value] : bindings) {
     trace_child(value, worklist);
   }
@@ -408,14 +407,14 @@ void Env::trace(std::vector<HeapEntity *> &worklist) const {
 
 Cons::Cons(Obj car, Obj cdr) : car{car}, cdr{cdr} {}
 
-void Cons::trace(std::vector<HeapEntity *> &worklist) const {
+void Cons::trace(std::vector<const HeapEntity *> &worklist) const {
   trace_child(car, worklist);
   trace_child(cdr, worklist);
 }
 
 Vector::Vector(std::vector<Obj> data) : data{std::move(data)} {}
 
-void Vector::trace(std::vector<HeapEntity *> &worklist) const {
+void Vector::trace(std::vector<const HeapEntity *> &worklist) const {
   for (Obj obj : data) {
     trace_child(obj, worklist);
   }
@@ -424,15 +423,15 @@ void Vector::trace(std::vector<HeapEntity *> &worklist) const {
 Builtin::Builtin(Builtin::Implementation implementation)
     : implementation{std::move(implementation)} {}
 
-Procedure::Procedure(Formals formals, Obj body, Env &env, ProcedureKind kind)
-    : formals{std::move(formals)}, body{body}, env{env}, kind{kind} {}
+Procedure::Procedure(Formals formals, const Expr *body, Env &env)
+    : formals{std::move(formals)}, body{body}, env{env} {}
 
-void Procedure::trace(std::vector<HeapEntity *> &worklist) const {
-  trace_child(body, worklist);
+void Procedure::trace(std::vector<const HeapEntity *> &worklist) const {
+  worklist.push_back(body);
   worklist.push_back(&env.get());
 }
 
-Promise::Promise(Obj body, Env &env) : state{Thunk{body, env}} {}
+Promise::Promise(const Expr *body, Env &env) : state{Thunk{body, env}} {}
 
 Obj Promise::force(EvalContext &context) {
   if (auto *t = std::get_if<Thunk>(&state)) {
@@ -441,10 +440,10 @@ Obj Promise::force(EvalContext &context) {
   return std::get<Obj>(state);
 }
 
-void Promise::trace(std::vector<HeapEntity *> &worklist) const {
+void Promise::trace(std::vector<const HeapEntity *> &worklist) const {
   std::visit(overloaded{
                  [&](const Thunk &t) {
-                   trace_child(t.body, worklist);
+                   worklist.push_back(t.body);
                    worklist.push_back(&t.env.get());
                  },
                  [&](Obj value) { trace_child(value, worklist); },
@@ -461,7 +460,7 @@ std::string Error::describe() const {
              : message + " " + join_elems(ListView{irritants}, true);
 }
 
-void Error::trace(std::vector<HeapEntity *> &worklist) const {
+void Error::trace(std::vector<const HeapEntity *> &worklist) const {
   trace_child(irritants, worklist);
 }
 

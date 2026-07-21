@@ -33,6 +33,7 @@ struct Void {};
 class Obj;
 class Env;
 class EvalContext;
+class Expr;
 struct HeapEntity;
 struct ListProfile;
 
@@ -215,10 +216,10 @@ struct ListProfile {
   bool is_proper() const { return tail.is_null(); }
 };
 
-void trace_child(Obj obj, std::vector<HeapEntity *> &worklist);
+void trace_child(Obj obj, std::vector<const HeapEntity *> &worklist);
 
 struct HeapEntity {
-  virtual void trace(std::vector<HeapEntity *> &) const {}
+  virtual void trace(std::vector<const HeapEntity *> &) const {}
   virtual ~HeapEntity() = default;
 };
 
@@ -236,7 +237,7 @@ public:
   void define(Symbol name, Obj value);
   bool set(Symbol name, Obj value);
 
-  void trace(std::vector<HeapEntity *> &) const override;
+  void trace(std::vector<const HeapEntity *> &) const override;
 };
 
 struct String : HeapEntity {
@@ -250,7 +251,7 @@ struct Cons : HeapEntity {
   Obj cdr;
 
   Cons(Obj car, Obj cdr);
-  void trace(std::vector<HeapEntity *> &) const override;
+  void trace(std::vector<const HeapEntity *> &) const override;
 };
 
 struct Vector : HeapEntity {
@@ -258,7 +259,7 @@ struct Vector : HeapEntity {
 
   Vector(std::vector<Obj> data);
 
-  void trace(std::vector<HeapEntity *> &) const override;
+  void trace(std::vector<const HeapEntity *> &) const override;
 };
 
 struct Builtin : HeapEntity {
@@ -273,40 +274,37 @@ struct Builtin : HeapEntity {
 };
 
 struct Formals {
-  std::vector<Symbol> fixed;
-  std::optional<Symbol> rest;
+  const std::vector<Symbol> fixed;
+  const std::optional<Symbol> rest;
 
   static Formals parse(Obj formals);
   void bind(Env &env, const std::vector<Obj> &args, EvalContext &context) const;
 };
 
-enum class ProcedureKind { Function, Macro };
-
 struct Procedure : HeapEntity {
-  Formals formals;
-  Obj body;
-  std::reference_wrapper<Env> env;
-  ProcedureKind kind;
+  const Formals formals;
+  const Expr *const body;
+  const std::reference_wrapper<Env> env;
 
-  Procedure(Formals formals, Obj body, Env &env, ProcedureKind kind);
+  Procedure(Formals formals, const Expr *body, Env &env);
 
-  void trace(std::vector<HeapEntity *> &) const override;
+  void trace(std::vector<const HeapEntity *> &) const override;
 };
 
 class Promise : public HeapEntity {
   struct Thunk {
-    Obj body;
+    const Expr *body;
     std::reference_wrapper<Env> env;
   };
 
   std::variant<Thunk, Obj> state;
 
 public:
-  Promise(Obj body, Env &env);
+  Promise(const Expr *body, Env &env);
 
   Obj force(EvalContext &context);
 
-  void trace(std::vector<HeapEntity *> &) const override;
+  void trace(std::vector<const HeapEntity *> &) const override;
 };
 
 struct Error : HeapEntity {
@@ -317,7 +315,7 @@ struct Error : HeapEntity {
 
   std::string describe() const;
 
-  void trace(std::vector<HeapEntity *> &) const override;
+  void trace(std::vector<const HeapEntity *> &) const override;
 };
 
 struct SchemeError : std::runtime_error {

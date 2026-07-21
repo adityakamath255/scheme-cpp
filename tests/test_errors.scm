@@ -50,9 +50,14 @@
             (car '()))))
 
 (assert "malformed binding caught" 'caught
-        (guard (e (#t 'caught)) (let ((x)) x)))
-(assert "accessor error message" "expected pair, got null"
-        (guard (e (#t (error-object-message e))) (let ((x)) x)))
+        (guard (e (#t 'caught)) (eval '(let ((x)) x))))
+(assert "parse error message"
+        "let: binding must contain a name and initializer"
+        (guard (e (#t (error-object-message e)))
+          (eval '(let ((x)) x))))
+(assert "dead syntax rejected" 'caught
+        (guard (e (#t 'caught))
+          (eval '(if #t 1 (lambda (5) 2)))))
 
 (define side 0)
 (guard (e (#t 'x)) (set! side 1) (error "after"))

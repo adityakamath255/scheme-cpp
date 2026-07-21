@@ -13,6 +13,7 @@
 #include <vector>
 
 class EvalContext;
+class Expr;
 
 class Arity {
   size_t minimum;
@@ -68,8 +69,12 @@ public:
 
   scheme::RunResult run(std::string_view source, ResultMode);
   void execute(std::string_view source, ResultMode);
-  Obj eval(Obj expression, Env &environment);
+  Obj eval(const Expr *expression, Env &environment);
+  Obj eval_top_level(Obj expression, Env &environment);
   Obj eval_global(Obj expression);
+
+  Procedure *lookup_macro(Symbol) const;
+  void define_macro(Symbol, Procedure *);
 };
 
 template<std::ranges::bidirectional_range R>

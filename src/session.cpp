@@ -9,6 +9,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -18,6 +19,7 @@ namespace scheme {
 class SessionState {
   std::vector<std::unique_ptr<HeapEntity>> heap;
   std::unordered_set<std::string> interned;
+  std::unordered_map<Symbol, Procedure *> macros;
   size_t gc_threshold;
   Env global_env;
   bool active;
@@ -55,7 +57,7 @@ public:
 }
 
 scheme::SessionState::SessionState()
-    : heap{}, interned{}, gc_threshold{1024},
+    : heap{}, interned{}, macros{}, gc_threshold{1024},
       global_env{}, active{false} {
   const Emit ignore;
   EvalContext context{*this, ignore};
@@ -68,12 +70,15 @@ bool scheme::SessionState::should_collect() const {
 }
 
 void scheme::SessionState::collect() {
-  std::vector<HeapEntity *> worklist;
-  std::unordered_set<HeapEntity *> marked;
+  std::vector<const HeapEntity *> worklist;
+  std::unordered_set<const HeapEntity *> marked;
   worklist.push_back(&global_env);
+  for (const auto &[_, macro] : macros) {
+    worklist.push_back(macro);
+  }
 
   while (!worklist.empty()) {
-    HeapEntity *entity = worklist.back();
+    const HeapEntity *entity = worklist.back();
     worklist.pop_back();
 
     if (marked.insert(entity).second) {
@@ -109,7 +114,16 @@ void EvalContext::collect_if_needed() {
 }
 
 Obj EvalContext::eval_global(Obj expression) {
-  return eval(expression, state.global_env);
+  return eval_top_level(expression, state.global_env);
+}
+
+Procedure *EvalContext::lookup_macro(Symbol name) const {
+  auto macro = state.macros.find(name);
+  return macro == state.macros.end() ? nullptr : macro->second;
+}
+
+void EvalContext::define_macro(Symbol name, Procedure *macro) {
+  state.macros.insert_or_assign(name, macro);
 }
 
 scheme::RunResult EvalContext::run(std::string_view source,
@@ -135,7 +149,7 @@ scheme::RunResult EvalContext::run(std::string_view source,
     }
 
     auto &datum = std::get<ReadDatum>(read);
-    Obj value = eval(datum.value, state.global_env);
+    Obj value = eval_global(datum.value);
 
     if (result_mode == ResultMode::Emit && !value.is_void()) {
       result(value.to_write());
