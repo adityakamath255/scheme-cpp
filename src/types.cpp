@@ -1,5 +1,8 @@
 #include "types.hpp"
+
+#include "arity.hpp"
 #include "ctx.hpp"
+#include "errors.hpp"
 #include "expression.hpp"
 
 #include <algorithm>
@@ -475,6 +478,47 @@ void Vector::trace(std::vector<const HeapEntity *> &worklist) const {
   }
 }
 
+Formals Formals::parse(Obj formals) {
+  if (auto rest = formals.try_as_symbol()) {
+    return {{}, *rest};
+  }
+
+  List params{formals};
+  std::vector<Symbol> fixed;
+  for (Obj param : params.elements) {
+    auto symbol = param.try_as_symbol();
+    if (!symbol) {
+      throw SchemeError("parameter must be a symbol");
+    }
+    fixed.push_back(*symbol);
+  }
+
+  if (params.proper()) {
+    return {std::move(fixed), std::nullopt};
+  }
+  if (auto rest = params.tail.try_as_symbol()) {
+    return {std::move(fixed), *rest};
+  }
+  throw SchemeError("invalid parameter list");
+}
+
+void Formals::bind(Env &env, const std::vector<Obj> &args,
+                   Ctx &context) const {
+  auto arity = rest ? Arity::at_least(fixed.size())
+                    : Arity::exactly(fixed.size());
+  if (auto error = arity.mismatch(args.size())) {
+    throw SchemeError(*error);
+  }
+
+  for (size_t i = 0; i < fixed.size(); i += 1) {
+    env.define(fixed[i], args[i]);
+  }
+  if (rest) {
+    env.define(*rest,
+               list_from(args | std::views::drop(fixed.size()), context));
+  }
+}
+
 Builtin::Builtin(Builtin::Implementation implementation)
     : implementation{std::move(implementation)} {}
 
@@ -519,24 +563,4 @@ std::string Error::describe() const {
 
 void Error::trace(std::vector<const HeapEntity *> &worklist) const {
   trace_child(irritants, worklist);
-}
-
-static std::string render_condition(Obj payload) {
-  if (Error *error = payload.try_as_error()) {
-    return error->describe();
-  }
-  return "uncaught exception: " + payload.to_write();
-}
-
-SchemeError::SchemeError(const std::string &message)
-    : scheme::EvaluationError(message), payload{} {}
-
-SchemeError SchemeError::raised(Obj payload) {
-  SchemeError e(render_condition(payload));
-  e.payload = payload;
-  return e;
-}
-
-Obj SchemeError::as_condition(Ctx &context) {
-  return payload ? *payload : Obj(context.alloc<Error>(what(), Null{}));
 }

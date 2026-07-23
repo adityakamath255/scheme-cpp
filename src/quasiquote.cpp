@@ -1,6 +1,7 @@
 #include "quasiquote.hpp"
 
 #include "ctx.hpp"
+#include "errors.hpp"
 
 #include <utility>
 #include <variant>

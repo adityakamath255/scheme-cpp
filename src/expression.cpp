@@ -1,6 +1,7 @@
 #include "expression.hpp"
 
 #include "ctx.hpp"
+#include "errors.hpp"
 
 #include <ranges>
 #include <span>

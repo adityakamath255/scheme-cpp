@@ -290,7 +290,7 @@ lives in `src/`; its headers are private:
   libtommath bignums on overflow, plus inexact doubles. Arithmetic, comparison,
   and exact/inexact conversion.
 - `ctx.cpp` - runtime ownership, execution, and the tail-call trampoline.
-- `eval.cpp` - arity and formal-parameter handling.
+- `arity.cpp` - argument-count validation.
 - `builtins.cpp` - built-in procedure registration, argument decoding, and
   implementations.
 - `preamble.cpp` - the standard library, stored as a string literal and

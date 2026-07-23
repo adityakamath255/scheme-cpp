@@ -1,7 +1,9 @@
 #include "ctx.hpp"
 
 #include "builtins.hpp"
+#include "errors.hpp"
 #include "expression.hpp"
+#include "parser.hpp"
 #include "preamble.hpp"
 #include "reader.hpp"
 
@@ -136,6 +138,11 @@ Obj Ctx::eval(const Expr *expression, Env &environment) {
         tail_call->environment.get(), *this);
   }
   return std::get<Obj>(value);
+}
+
+Obj Ctx::eval_top_level(Obj expression, Env &environment) {
+  Parser parser{*this};
+  return parser.top_level(expression, environment);
 }
 
 Obj Ctx::eval_global(Obj expression) {

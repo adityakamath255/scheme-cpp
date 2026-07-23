@@ -1,6 +1,6 @@
 #include "lexer.hpp"
 
-#include "types.hpp"
+#include "errors.hpp"
 
 #include <cassert>
 

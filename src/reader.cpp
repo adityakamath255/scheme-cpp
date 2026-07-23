@@ -1,6 +1,7 @@
 #include "reader.hpp"
 
 #include "ctx.hpp"
+#include "errors.hpp"
 #include "lexer.hpp"
 
 #include <array>

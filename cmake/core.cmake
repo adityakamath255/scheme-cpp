@@ -1,9 +1,10 @@
 set(SCHEME_ROOT ${CMAKE_CURRENT_LIST_DIR}/..)
 
 set(SCHEME_CORE_SOURCES
+  ${SCHEME_ROOT}/src/arity.cpp
   ${SCHEME_ROOT}/src/builtins.cpp
   ${SCHEME_ROOT}/src/ctx.cpp
-  ${SCHEME_ROOT}/src/eval.cpp
+  ${SCHEME_ROOT}/src/errors.cpp
   ${SCHEME_ROOT}/src/expression.cpp
   ${SCHEME_ROOT}/src/lexer.cpp
   ${SCHEME_ROOT}/src/number.cpp
@@ -16,12 +17,14 @@ set(SCHEME_CORE_SOURCES
 )
 
 set(SCHEME_PRIVATE_HEADERS
+  ${SCHEME_ROOT}/src/arity.hpp
   ${SCHEME_ROOT}/src/builtins.hpp
   ${SCHEME_ROOT}/src/ctx.hpp
-  ${SCHEME_ROOT}/src/eval.hpp
+  ${SCHEME_ROOT}/src/errors.hpp
   ${SCHEME_ROOT}/src/expression.hpp
   ${SCHEME_ROOT}/src/lexer.hpp
   ${SCHEME_ROOT}/src/number.hpp
+  ${SCHEME_ROOT}/src/parser.hpp
   ${SCHEME_ROOT}/src/preamble.hpp
   ${SCHEME_ROOT}/src/quasiquote.hpp
   ${SCHEME_ROOT}/src/reader.hpp

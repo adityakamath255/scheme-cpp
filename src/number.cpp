@@ -1,6 +1,7 @@
 #include "number.hpp"
 
 #include "ctx.hpp"
+#include "errors.hpp"
 #include "types.hpp"
 
 #include <tommath.h>
@@ -258,7 +259,7 @@ Number Number::mul(Number o, Ctx &context) const {
 Number Number::div(Number o, Ctx &context) const {
   if (is_exact() && o.is_exact()) {
     if (o.is_zero()) {
-      throw CallError("division by zero");
+      throw UnattributedError("division by zero");
     }
     auto [q, r] = divmod(rep, o.rep, context);
     if (rep_is_zero(r)) {
@@ -297,7 +298,7 @@ Number Number::sqrt(Ctx &context) const {
 
 Number Number::quotient(Number o, Ctx &context) const {
   if (o.is_zero()) {
-    throw CallError("division by zero");
+    throw UnattributedError("division by zero");
   }
 
   if (is_exact() && o.is_exact()) {
@@ -309,7 +310,7 @@ Number Number::quotient(Number o, Ctx &context) const {
 }
 Number Number::remainder(Number o, Ctx &context) const {
   if (o.is_zero()) {
-    throw CallError("division by zero");
+    throw UnattributedError("division by zero");
   }
 
   if (is_exact() && o.is_exact()) {
@@ -322,7 +323,7 @@ Number Number::remainder(Number o, Ctx &context) const {
 
 Number Number::modulo(Number o, Ctx &context) const {
   if (o.is_zero()) {
-    throw CallError("division by zero");
+    throw UnattributedError("division by zero");
   }
 
   Number r = remainder(o, context);
@@ -362,10 +363,10 @@ Number Number::to_exact(Ctx &context) const {
   else {
     double d = std::get<double>(rep);
     if (!std::isfinite(d) || std::trunc(d) != d) {
-      throw CallError("not an integer");
+      throw UnattributedError("not an integer");
     }
     if (d < -int64_magnitude || d >= int64_magnitude) {
-      throw CallError("magnitude too large");
+      throw UnattributedError("magnitude too large");
     }
     return Number(of_i64(static_cast<int64_t>(d), context));
   }

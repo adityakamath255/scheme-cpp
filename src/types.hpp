@@ -1,6 +1,5 @@
 #pragma once
 #include "number.hpp"
-#include "scheme/session.hpp"
 
 #include <cstddef>
 #include <functional>
@@ -257,17 +256,4 @@ struct Error : HeapEntity {
   std::string describe() const;
 
   void trace(std::vector<const HeapEntity *> &) const override;
-};
-
-struct SchemeError : scheme::EvaluationError {
-  std::optional<Obj> payload;
-
-  explicit SchemeError(const std::string &message);
-  static SchemeError raised(Obj payload);
-
-  Obj as_condition(Ctx &context);
-};
-
-struct CallError : SchemeError {
-  using SchemeError::SchemeError;
 };

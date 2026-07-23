@@ -1,6 +1,8 @@
-#include "eval.hpp"
-#include "expression.hpp"
-#include "quasiquote.hpp"
+#include "parser.hpp"
+
+#include "arity.hpp"
+#include "ctx.hpp"
+#include "errors.hpp"
 
 #include <format>
 #include <span>
@@ -37,51 +39,9 @@ static std::vector<Obj> form_arguments(Obj rest, std::string_view name,
   return std::move(arguments.elements);
 }
 
-class Parser {
-  Ctx &context;
+}
 
-  using FormParser = const Expr *(Parser::*)(Obj);
-
-  FormParser form_parser(std::string_view name) const;
-  Obj expand_macro(Obj arguments, Symbol name, Procedure *macro);
-
-  const Expr *parse_quote(Obj);
-  const Expr *parse_if(Obj);
-  const Expr *parse_define(Obj);
-  const Expr *parse_set(Obj);
-  const Expr *parse_lambda(Obj);
-  const Expr *parse_begin(Obj);
-  const Expr *parse_let(Obj);
-  const Expr *parse_let_star(Obj);
-  const Expr *parse_let_rec(Obj);
-  const Expr *parse_when(Obj);
-  const Expr *parse_unless(Obj);
-  const Expr *parse_case(Obj);
-  const Expr *parse_cond(Obj);
-  const Expr *parse_and(Obj);
-  const Expr *parse_or(Obj);
-  const Expr *parse_quasiquote(Obj);
-  const Expr *parse_guard(Obj);
-  const Expr *parse_delay(Obj);
-  const Expr *parse_cons_stream(Obj);
-  const Expr *parse_define_macro(Obj);
-
-  const Expr *parse_sequence(std::span<const Obj>);
-  std::vector<Binding> parse_bindings(Obj, std::string_view);
-  const LetExpr *parse_ordinary_let(Obj, LetKind, std::string_view);
-  const CondExpr *parse_cond_clauses(Obj);
-  const QuasiquoteTemplate *compile_quasiquote(Obj, size_t);
-  QuasiquoteElement compile_quasiquote_element(Obj, size_t);
-  const QuasiquoteTemplate *quasiquote_form(
-      Symbol, const QuasiquoteTemplate *);
-
-public:
-  explicit Parser(Ctx &context) : context{context} {}
-
-  const Expr *parse(Obj);
-  Obj expand_head(Obj);
-  void define_macro(Obj, Env &);
-};
+Parser::Parser(Ctx &context) : context{context} {}
 
 Parser::FormParser Parser::form_parser(std::string_view name) const {
   static const std::unordered_map<std::string_view, FormParser> forms = {
@@ -597,31 +557,24 @@ void Parser::define_macro(Obj rest, Env &env) {
   context.define_macro(*name, macro);
 }
 
-static Obj eval_top_level_form(Obj datum, Env &env, Ctx &context,
-                               Parser &parser) {
-  datum = parser.expand_head(datum);
+// top-level forms
+Obj Parser::top_level(Obj datum, Env &env) {
+  datum = expand_head(datum);
   if (Cons *form = datum.try_as_cons()) {
     if (is_keyword(form->car, "begin")) {
       std::vector<Obj> forms =
           form_arguments(form->cdr, "begin", Arity::at_least(0));
       Obj result = Void{};
       for (Obj child : forms) {
-        result = eval_top_level_form(child, env, context, parser);
+        result = top_level(child, env);
       }
       return result;
     }
 
     if (is_keyword(form->car, "define-macro")) {
-      parser.define_macro(form->cdr, env);
+      define_macro(form->cdr, env);
       return Void{};
     }
   }
-  return context.eval(parser.parse(datum), env);
-}
-
-}
-
-Obj Ctx::eval_top_level(Obj expression, Env &environment) {
-  Parser parser{*this};
-  return eval_top_level_form(expression, environment, *this, parser);
+  return context.eval(parse(datum), env);
 }

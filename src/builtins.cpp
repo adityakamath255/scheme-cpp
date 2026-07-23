@@ -1,5 +1,8 @@
 #include "builtins.hpp"
-#include "eval.hpp"
+
+#include "arity.hpp"
+#include "ctx.hpp"
+#include "errors.hpp"
 #include "reader.hpp"
 
 #include <algorithm>
@@ -34,7 +37,7 @@ template <typename T> struct ObjectPattern {
     try {
       return (obj.*accessor)();
     } catch (const SchemeError &error) {
-      throw CallError(error.what());
+      throw UnattributedError(error.what());
     }
   }
 
@@ -77,7 +80,7 @@ constexpr IndexPattern index;
 size_t IndexPattern::parse(Args raw, size_t &position) const {
   auto value = arg::number.decode(raw[position++]).to_size();
   if (!value) {
-    throw CallError("expected non-negative integer");
+    throw UnattributedError("expected non-negative integer");
   }
   return *value;
 }
@@ -157,7 +160,7 @@ template <typename... Patterns> auto match(Args raw, Patterns... patterns) {
   auto arity = unbounded ? Arity::at_least(min)
                          : Arity::between(min, sizeof...(Patterns));
   if (auto error = arity.mismatch(raw.size())) {
-    throw CallError(*error);
+    throw UnattributedError(*error);
   }
 
   size_t position = 0;
@@ -185,7 +188,7 @@ public:
                        Args raw, Ctx &context) -> Obj {
       try {
         return implementation(raw, context);
-      } catch (const CallError &error) {
+      } catch (const UnattributedError &error) {
         throw SchemeError(std::format("{}: {}", name, error.what()));
       }
     };
@@ -224,7 +227,7 @@ static Number minmax(Number first, const std::vector<Number> &rest,
 template <typename Container>
 static decltype(auto) element_at(Container &container, size_t index) {
   if (index >= container.size()) {
-    throw CallError("index out of range");
+    throw UnattributedError("index out of range");
   }
   return container[index];
 }
@@ -468,11 +471,11 @@ static void install_lists(Installer install) {
   install("length", [](Args raw, Ctx &context) -> Obj {
     Obj list = match(raw, arg::any);
     if (!list.is_null() && !list.is_cons()) {
-      throw CallError("expected list, got " + list.type_name());
+      throw UnattributedError("expected list, got " + list.type_name());
     }
     List parts{list};
     if (!parts.proper()) {
-      throw CallError("expected proper list");
+      throw UnattributedError("expected proper list");
     }
     return Number::exact(
         static_cast<int64_t>(parts.elements.size()), context);
@@ -508,7 +511,7 @@ static void install_strings(Installer install) {
         match(raw, arg::string, arg::index, optional(arg::index));
     size_t end = requested_end.value_or(string->data.size());
     if (start > end || end > string->data.size()) {
-      throw CallError("index out of range");
+      throw UnattributedError("index out of range");
     }
     return context.alloc<String>(string->data.substr(start, end - start));
   });
@@ -537,7 +540,7 @@ static void install_strings(Installer install) {
   install("integer->char", [](Args raw, Ctx &) -> Obj {
     size_t value = match(raw, arg::index);
     if (value > std::numeric_limits<unsigned char>::max()) {
-      throw CallError("value out of range");
+      throw UnattributedError("value out of range");
     }
     return static_cast<char>(static_cast<unsigned char>(value));
   });
@@ -547,7 +550,7 @@ static void install_strings(Installer install) {
   install("list->string", [](Args raw, Ctx &context) -> Obj {
     List list{match(raw, arg::any)};
     if (!list.proper()) {
-      throw CallError("expected proper list");
+      throw UnattributedError("expected proper list");
     }
     return context.alloc<String>(std::ranges::to<std::string>(
         list.elements | std::views::transform([](Obj value) {
@@ -594,7 +597,7 @@ static void install_io(Installer install) {
     while (true) {
       std::string line;
       if (!std::getline(std::cin, line)) {
-        throw CallError("unexpected end of input");
+        throw UnattributedError("unexpected end of input");
       }
       if (!input.empty()) {
         input += '\n';
@@ -640,7 +643,7 @@ static void install_vectors(Installer install) {
   install("list->vector", [](Args raw, Ctx &context) -> Obj {
     List list{match(raw, arg::any)};
     if (!list.proper()) {
-      throw CallError("expected proper list");
+      throw UnattributedError("expected proper list");
     }
     return context.alloc<Vector>(std::move(list.elements));
   });
@@ -677,7 +680,7 @@ static void install_other(Installer install) {
     const std::string &path = match(raw, arg::string)->data;
     std::ifstream file(path);
     if (!file) {
-      throw CallError("could not open " + path);
+      throw UnattributedError("could not open " + path);
     }
     std::ostringstream buffer;
     buffer << file.rdbuf();
