@@ -7,7 +7,7 @@
 #include <variant>
 #include <vector>
 
-class EvalContext;
+class Ctx;
 class Expr;
 
 struct TailCall {
@@ -19,7 +19,7 @@ using EvalResult = std::variant<Obj, TailCall>;
 
 class Expr : public HeapEntity {
 public:
-  virtual EvalResult eval(Env &, EvalContext &) const = 0;
+  virtual EvalResult eval(Env &, Ctx &) const = 0;
 };
 
 class LiteralExpr final : public Expr {
@@ -28,7 +28,7 @@ class LiteralExpr final : public Expr {
 public:
   explicit LiteralExpr(Obj value);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -38,7 +38,7 @@ class ReferenceExpr final : public Expr {
 public:
   explicit ReferenceExpr(Symbol name);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
 };
 
 class IfExpr final : public Expr {
@@ -50,7 +50,7 @@ public:
   IfExpr(const Expr *predicate, const Expr *consequent,
          const Expr *alternative);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -60,7 +60,7 @@ class BeginExpr final : public Expr {
 public:
   explicit BeginExpr(std::vector<const Expr *> expressions);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -71,7 +71,7 @@ class LambdaExpr final : public Expr {
 public:
   LambdaExpr(Formals formals, const Expr *body);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -82,7 +82,7 @@ class DefineExpr final : public Expr {
 public:
   DefineExpr(Symbol name, const Expr *initializer);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -93,7 +93,7 @@ class SetExpr final : public Expr {
 public:
   SetExpr(Symbol name, const Expr *value);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -104,7 +104,7 @@ class CallExpr final : public Expr {
 public:
   CallExpr(const Expr *procedure, std::vector<const Expr *> arguments);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -124,7 +124,7 @@ public:
   LetExpr(LetKind kind, std::vector<Binding> bindings,
           const Expr *body);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -137,7 +137,7 @@ public:
   NamedLetExpr(Symbol name, std::vector<Binding> bindings,
                const Expr *body);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -150,7 +150,7 @@ class LogicalExpr final : public Expr {
 public:
   LogicalExpr(LogicalKind kind, std::vector<const Expr *> operands);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -180,8 +180,8 @@ class CondExpr final : public Expr {
 public:
   explicit CondExpr(std::vector<CondClause> clauses);
 
-  std::optional<EvalResult> try_eval(Env &, EvalContext &) const;
-  EvalResult eval(Env &, EvalContext &) const override;
+  std::optional<EvalResult> try_eval(Env &, Ctx &) const;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -197,7 +197,7 @@ class CaseExpr final : public Expr {
 public:
   CaseExpr(const Expr *key, std::vector<CaseClause> clauses);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -209,7 +209,7 @@ class GuardExpr final : public Expr {
 public:
   GuardExpr(Symbol variable, const CondExpr *handler, const Expr *body);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -219,7 +219,7 @@ class DelayExpr final : public Expr {
 public:
   explicit DelayExpr(const Expr *body);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -230,6 +230,6 @@ class ConsStreamExpr final : public Expr {
 public:
   ConsStreamExpr(const Expr *head, const Expr *tail);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };

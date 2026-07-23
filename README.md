@@ -289,17 +289,16 @@ lives in `src/`; its headers are private:
 - `number.cpp` - the `Number` type: exact fixnums that auto-promote to
   libtommath bignums on overflow, plus inexact doubles. Arithmetic, comparison,
   and exact/inexact conversion.
-- `eval.cpp` - arity and formal-parameter handling plus the tail-call
-  trampoline. `EvalContext` owns one active execution.
+- `ctx.cpp` - runtime ownership, execution, and the tail-call trampoline.
+- `eval.cpp` - arity and formal-parameter handling.
 - `builtins.cpp` - built-in procedure registration, argument decoding, and
   implementations.
 - `preamble.cpp` - the standard library, stored as a string literal and
   evaluated at startup.
-- `session.cpp` - the public `scheme::Session` boundary, its private state, and
-  the source execution loop.
-  `SessionState` owns the managed heap, symbol table, global environment, and
-  garbage collector. It initializes the interpreter and exposes incremental
-  and strict execution.
+- `session.cpp` - the public `scheme::Session` boundary.
+  `Ctx` owns the managed heap, symbol table, global environment, and garbage
+  collector. It initializes the interpreter and exposes incremental and strict
+  execution.
 
 The two frontends use `scheme::Session` through
 `include/scheme/session.hpp`:

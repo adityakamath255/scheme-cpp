@@ -1,6 +1,6 @@
 #include "reader.hpp"
 
-#include "eval.hpp"
+#include "ctx.hpp"
 #include "lexer.hpp"
 
 #include <array>
@@ -48,7 +48,7 @@ std::string process_escapes(std::string_view raw) {
 
 class Reader {
   Lexer lexer;
-  EvalContext &context;
+  Ctx &context;
   std::optional<Token> current;
 
   const Token *peek() {
@@ -179,7 +179,7 @@ class Reader {
   }
 
 public:
-  Reader(std::string_view source, EvalContext &context)
+  Reader(std::string_view source, Ctx &context)
       : lexer{source}, context{context}, current{} {}
 
   std::optional<Obj> read() {
@@ -194,7 +194,7 @@ public:
 
 }
 
-ReadOutcome read_one(std::string_view source, EvalContext &context) {
+ReadOutcome read_one(std::string_view source, Ctx &context) {
   try {
     Reader reader{source, context};
     if (auto value = reader.read()) {

@@ -38,7 +38,7 @@ public:
   explicit QuasiquoteTemplate(VectorElements value);
   explicit QuasiquoteTemplate(Value value);
 
-  Obj instantiate(Env &, EvalContext &) const;
+  Obj instantiate(Env &, Ctx &) const;
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
@@ -48,6 +48,6 @@ class QuasiquoteExpr final : public Expr {
 public:
   explicit QuasiquoteExpr(const QuasiquoteTemplate *value);
 
-  EvalResult eval(Env &, EvalContext &) const override;
+  EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;
 };

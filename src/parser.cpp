@@ -38,7 +38,7 @@ static std::vector<Obj> form_arguments(Obj rest, std::string_view name,
 }
 
 class Parser {
-  EvalContext &context;
+  Ctx &context;
   size_t depth = 0;
 
   class Frame {
@@ -91,7 +91,7 @@ class Parser {
       Symbol, const QuasiquoteTemplate *);
 
 public:
-  explicit Parser(EvalContext &context) : context{context} {}
+  explicit Parser(Ctx &context) : context{context} {}
 
   const Expr *parse(Obj);
   Obj expand_head(Obj);
@@ -571,7 +571,7 @@ void Parser::define_macro(Obj rest, Env &env) {
   context.define_macro(target.as_symbol(), value.as_procedure());
 }
 
-static Obj eval_top_level_form(Obj datum, Env &env, EvalContext &context,
+static Obj eval_top_level_form(Obj datum, Env &env, Ctx &context,
                                Parser &parser) {
   datum = parser.expand_head(datum);
   if (datum.is_cons() && is_keyword(datum.car(), "begin")) {
@@ -593,7 +593,7 @@ static Obj eval_top_level_form(Obj datum, Env &env, EvalContext &context,
 
 }
 
-Obj EvalContext::eval_top_level(Obj expression, Env &environment) {
+Obj Ctx::eval_top_level(Obj expression, Env &environment) {
   Parser parser{*this};
   return eval_top_level_form(expression, environment, *this, parser);
 }

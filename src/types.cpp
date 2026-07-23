@@ -1,5 +1,5 @@
 #include "types.hpp"
-#include "eval.hpp"
+#include "ctx.hpp"
 #include "expression.hpp"
 
 #include <algorithm>
@@ -433,7 +433,7 @@ void Procedure::trace(std::vector<const HeapEntity *> &worklist) const {
 
 Promise::Promise(const Expr *body, Env &env) : state{Thunk{body, env}} {}
 
-Obj Promise::force(EvalContext &context) {
+Obj Promise::force(Ctx &context) {
   if (auto *t = std::get_if<Thunk>(&state)) {
     state = context.eval(t->body, t->env.get());
   }
@@ -478,6 +478,6 @@ SchemeError SchemeError::raised(Obj payload) {
   return e;
 }
 
-Obj SchemeError::as_condition(EvalContext &context) {
+Obj SchemeError::as_condition(Ctx &context) {
   return payload ? *payload : Obj(context.alloc<Error>(what(), Null{}));
 }

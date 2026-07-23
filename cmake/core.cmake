@@ -2,6 +2,7 @@ set(SCHEME_ROOT ${CMAKE_CURRENT_LIST_DIR}/..)
 
 set(SCHEME_CORE_SOURCES
   ${SCHEME_ROOT}/src/builtins.cpp
+  ${SCHEME_ROOT}/src/ctx.cpp
   ${SCHEME_ROOT}/src/eval.cpp
   ${SCHEME_ROOT}/src/expression.cpp
   ${SCHEME_ROOT}/src/lexer.cpp
@@ -16,6 +17,7 @@ set(SCHEME_CORE_SOURCES
 
 set(SCHEME_PRIVATE_HEADERS
   ${SCHEME_ROOT}/src/builtins.hpp
+  ${SCHEME_ROOT}/src/ctx.hpp
   ${SCHEME_ROOT}/src/eval.hpp
   ${SCHEME_ROOT}/src/expression.hpp
   ${SCHEME_ROOT}/src/lexer.hpp

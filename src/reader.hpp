@@ -5,7 +5,7 @@
 #include <string_view>
 #include <variant>
 
-class EvalContext;
+class Ctx;
 
 struct ReadDatum {
   Obj value;
@@ -20,4 +20,4 @@ struct ReadIncomplete {};
 
 using ReadOutcome = std::variant<ReadDatum, ReadEnd, ReadIncomplete>;
 
-ReadOutcome read_one(std::string_view source, EvalContext &context);
+ReadOutcome read_one(std::string_view source, Ctx &context);

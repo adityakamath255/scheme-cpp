@@ -1,6 +1,6 @@
 #include "number.hpp"
 
-#include "eval.hpp"
+#include "ctx.hpp"
 #include "types.hpp"
 
 #include <tommath.h>
@@ -107,7 +107,7 @@ bool rep_is_negative(const Rep &r) {
 using MpBinop = mp_err (*)(const mp_int *, const mp_int *, mp_int *);
 using MpUnop  = mp_err (*)(const mp_int *, mp_int *);
 
-Rep exact_binop(const Rep &a, const Rep &b, EvalContext &context, MpBinop op) {
+Rep exact_binop(const Rep &a, const Rep &b, Ctx &context, MpBinop op) {
   BigInt *r = context.alloc<BigInt>();
   Mp sa, sb;
   check(op(as_mp(a, sa), as_mp(b, sb), &r->val));
@@ -115,7 +115,7 @@ Rep exact_binop(const Rep &a, const Rep &b, EvalContext &context, MpBinop op) {
 }
 
 template<typename Op>
-Rep arith(const Rep &a, const Rep &b, EvalContext &context, Op op, MpBinop mp) {
+Rep arith(const Rep &a, const Rep &b, Ctx &context, Op op, MpBinop mp) {
   if (rep_is_exact(a) && rep_is_exact(b)) {
     auto ai = std::get_if<int64_t>(&a);
     auto bi = std::get_if<int64_t>(&b);
@@ -133,7 +133,7 @@ Rep arith(const Rep &a, const Rep &b, EvalContext &context, Op op, MpBinop mp) {
 }
 
 template<typename Fix>
-Rep unary(const Rep &a, EvalContext &context, MpUnop mp, Fix fix) {
+Rep unary(const Rep &a, Ctx &context, MpUnop mp, Fix fix) {
   return std::visit(overloaded {
     [&](int64_t v) -> Rep { return of_i64(fix(v), context); },
     [&](BigInt *b) -> Rep {
@@ -147,7 +147,7 @@ Rep unary(const Rep &a, EvalContext &context, MpUnop mp, Fix fix) {
 
 struct QuotRem { Rep quot; Rep rem; };
 
-QuotRem divmod(const Rep &a, const Rep &b, EvalContext &context) {
+QuotRem divmod(const Rep &a, const Rep &b, Ctx &context) {
   if (auto ai = std::get_if<int64_t>(&a)) {
     if (auto bi = std::get_if<int64_t>(&b)) {
       return { of_i64(*ai / *bi, context), of_i64(*ai % *bi, context) };
@@ -164,7 +164,7 @@ QuotRem divmod(const Rep &a, const Rep &b, EvalContext &context) {
 
 Number::Number(Rep r): rep {std::move(r)} {}
 
-Number Number::exact(int64_t v, EvalContext &context) {
+Number Number::exact(int64_t v, Ctx &context) {
   return Number(of_i64(v, context));
 }
 
@@ -237,25 +237,25 @@ bool Number::is_even() const {
   }, rep);
 }
 
-Number Number::add(Number o, EvalContext &context) const {
+Number Number::add(Number o, Ctx &context) const {
   return Number(arith(
     rep, o.rep, context, std::plus<>{}, mp_add
   ));
 }
 
-Number Number::sub(Number o, EvalContext &context) const {
+Number Number::sub(Number o, Ctx &context) const {
   return Number(arith(
     rep, o.rep, context, std::minus<>{}, mp_sub
   )); 
 }
 
-Number Number::mul(Number o, EvalContext &context) const {
+Number Number::mul(Number o, Ctx &context) const {
   return Number(arith(
     rep, o.rep, context, std::multiplies<>{}, mp_mul
   ));
 }
 
-Number Number::div(Number o, EvalContext &context) const {
+Number Number::div(Number o, Ctx &context) const {
   if (is_exact() && o.is_exact()) {
     if (o.is_zero()) {
       throw CallError("division by zero");
@@ -268,19 +268,19 @@ Number Number::div(Number o, EvalContext &context) const {
   return inexact(to_double() / o.to_double());
 }
 
-Number Number::neg(EvalContext &context) const {
+Number Number::neg(Ctx &context) const {
   return Number(unary(
     rep, context, mp_neg, [](auto x) { return -x; }
   ));
 }
 
-Number Number::abs(EvalContext &context) const {
+Number Number::abs(Ctx &context) const {
   return Number(unary(
     rep, context, mp_abs, [](auto x) { return x < 0 ? -x : x; }
   ));
 }
 
-Number Number::sqrt(EvalContext &context) const {
+Number Number::sqrt(Ctx &context) const {
   if (is_exact() && !rep_is_negative(rep)) {
     Mp scratch;
     const mp_int *m = as_mp(rep, scratch);
@@ -295,7 +295,7 @@ Number Number::sqrt(EvalContext &context) const {
   return inexact(std::sqrt(to_double()));
 }
 
-Number Number::quotient(Number o, EvalContext &context) const {
+Number Number::quotient(Number o, Ctx &context) const {
   if (o.is_zero()) {
     throw CallError("division by zero");
   }
@@ -307,7 +307,7 @@ Number Number::quotient(Number o, EvalContext &context) const {
     return inexact(std::trunc(to_double() / o.to_double()));
   }
 }
-Number Number::remainder(Number o, EvalContext &context) const {
+Number Number::remainder(Number o, Ctx &context) const {
   if (o.is_zero()) {
     throw CallError("division by zero");
   }
@@ -320,7 +320,7 @@ Number Number::remainder(Number o, EvalContext &context) const {
   }
 }
 
-Number Number::modulo(Number o, EvalContext &context) const {
+Number Number::modulo(Number o, Ctx &context) const {
   if (o.is_zero()) {
     throw CallError("division by zero");
   }
@@ -337,7 +337,7 @@ Number Number::modulo(Number o, EvalContext &context) const {
   }
 }
 
-Number Number::expt(Number power, EvalContext &context) const {
+Number Number::expt(Number power, Ctx &context) const {
   if (is_exact()) {
     if (auto e = std::get_if<int64_t>(&power.rep)) {
       if (*e >= 0 && *e <= std::numeric_limits<int>::max()) {
@@ -355,7 +355,7 @@ Number Number::to_inexact() const {
   return is_exact() ? inexact(to_double()) : *this;
 }
 
-Number Number::to_exact(EvalContext &context) const {
+Number Number::to_exact(Ctx &context) const {
   if (is_exact()) {
     return *this;
   }
@@ -415,7 +415,7 @@ bool Number::eqv(Number o) const {
     && compare(o) == std::partial_ordering::equivalent;
 }
 
-Number Number::parse(std::string_view lexeme, EvalContext &context) {
+Number Number::parse(std::string_view lexeme, Ctx &context) {
   if (lexeme == "+inf.0") {
     return inexact(std::numeric_limits<double>::infinity());
   }

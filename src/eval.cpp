@@ -1,38 +1,10 @@
 #include "eval.hpp"
-#include "expression.hpp"
 
 #include <format>
 #include <ranges>
 #include <stdexcept>
 #include <string>
 #include <utility>
-
-static constexpr size_t max_eval_depth = 1000;
-
-EvalContext::EvalContext(scheme::SessionState &state,
-                         const scheme::Emit &emit)
-    : state{state}, emit_event{emit}, depth{0} {}
-
-void EvalContext::output(std::string_view text) const {
-  if (emit_event) {
-    emit_event(scheme::Output{std::string(text)});
-  }
-}
-
-void EvalContext::result(std::string text) const {
-  if (emit_event) {
-    emit_event(scheme::Result{std::move(text)});
-  }
-}
-
-EvalContext::Frame::Frame(EvalContext &context) : context{context} {
-  if (context.depth >= max_eval_depth) {
-    throw SchemeError("recursion too deep");
-  }
-  context.depth += 1;
-}
-
-EvalContext::Frame::~Frame() { context.depth -= 1; }
 
 Arity::Arity(size_t minimum, std::optional<size_t> maximum)
     : minimum{minimum}, maximum{maximum} {
@@ -92,7 +64,7 @@ Formals Formals::parse(Obj formals) {
 }
 
 void Formals::bind(Env &env, const std::vector<Obj> &args,
-                   EvalContext &context) const {
+                   Ctx &context) const {
   auto arity = rest ? Arity::at_least(fixed.size())
                     : Arity::exactly(fixed.size());
   if (auto error = arity.mismatch(args.size())) {
@@ -106,14 +78,4 @@ void Formals::bind(Env &env, const std::vector<Obj> &args,
     env.define(*rest,
                list_from(args | std::views::drop(fixed.size()), context));
   }
-}
-
-Obj EvalContext::eval(const Expr *expression, Env &environment) {
-  Frame frame{*this};
-  EvalResult result = expression->eval(environment, *this);
-  while (auto *tail_call = std::get_if<TailCall>(&result)) {
-    result = tail_call->expression->eval(
-        tail_call->environment.get(), *this);
-  }
-  return std::get<Obj>(result);
 }

@@ -30,7 +30,7 @@ struct Void {};
 
 class Obj;
 class Env;
-class EvalContext;
+class Ctx;
 class Expr;
 struct HeapEntity;
 struct ListProfile;
@@ -60,7 +60,7 @@ class Symbol {
 
   explicit Symbol(const std::string &);
 
-  friend class EvalContext;
+  friend class Ctx;
   friend struct std::hash<Symbol>;
 
 public:
@@ -224,7 +224,7 @@ struct Vector : HeapEntity {
 
 struct Builtin : HeapEntity {
   using Fn =
-      std::function<Obj(const std::vector<Obj> &, EvalContext &)>;
+      std::function<Obj(const std::vector<Obj> &, Ctx &)>;
   struct Apply {};
   using Implementation = std::variant<Fn, Apply>;
 
@@ -238,7 +238,7 @@ struct Formals {
   const std::optional<Symbol> rest;
 
   static Formals parse(Obj formals);
-  void bind(Env &env, const std::vector<Obj> &args, EvalContext &context) const;
+  void bind(Env &env, const std::vector<Obj> &args, Ctx &context) const;
 };
 
 struct Procedure : HeapEntity {
@@ -262,7 +262,7 @@ class Promise : public HeapEntity {
 public:
   Promise(const Expr *body, Env &env);
 
-  Obj force(EvalContext &context);
+  Obj force(Ctx &context);
 
   void trace(std::vector<const HeapEntity *> &) const override;
 };
@@ -284,7 +284,7 @@ struct SchemeError : scheme::EvaluationError {
   explicit SchemeError(const std::string &message);
   static SchemeError raised(Obj payload);
 
-  Obj as_condition(EvalContext &context);
+  Obj as_condition(Ctx &context);
 };
 
 struct CallError : SchemeError {

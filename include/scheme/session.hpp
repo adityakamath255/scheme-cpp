@@ -9,9 +9,9 @@
 #include <string_view>
 #include <variant>
 
-namespace scheme {
+class Ctx;
 
-class SessionState;
+namespace scheme {
 
 class EvaluationError : public std::runtime_error {
 public:
@@ -45,7 +45,7 @@ struct RunResult {
 };
 
 class Session {
-  std::unique_ptr<SessionState> state;
+  std::unique_ptr<::Ctx> state;
 
 public:
   Session();

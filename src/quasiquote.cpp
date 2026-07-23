@@ -1,6 +1,6 @@
 #include "quasiquote.hpp"
 
-#include "eval.hpp"
+#include "ctx.hpp"
 
 #include <ranges>
 #include <utility>
@@ -23,7 +23,7 @@ void trace_quasiquote_element(
 }
 
 std::vector<Obj> instantiate_splice(
-    const Expr *expression, Env &env, EvalContext &context) {
+    const Expr *expression, Env &env, Ctx &context) {
   Obj values = context.eval(expression, env);
   auto profile = values.list_profile();
   if (!profile.is_proper()) {
@@ -44,7 +44,7 @@ QuasiquoteTemplate::QuasiquoteTemplate(VectorElements value)
 QuasiquoteTemplate::QuasiquoteTemplate(Value value) : value{value} {}
 
 Obj QuasiquoteTemplate::instantiate(
-    Env &env, EvalContext &context) const {
+    Env &env, Ctx &context) const {
   return std::visit(
       overloaded{
           [&](Obj datum) { return datum; },
@@ -113,7 +113,7 @@ void QuasiquoteTemplate::trace(
 QuasiquoteExpr::QuasiquoteExpr(const QuasiquoteTemplate *value)
     : value{value} {}
 
-EvalResult QuasiquoteExpr::eval(Env &env, EvalContext &context) const {
+EvalResult QuasiquoteExpr::eval(Env &env, Ctx &context) const {
   return value->instantiate(env, context);
 }
 

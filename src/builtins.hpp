@@ -1,5 +1,5 @@
 #pragma once
 
-class EvalContext;
+class Ctx;
 
-void install_builtins(EvalContext &context);
+void install_builtins(Ctx &context);
