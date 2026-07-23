@@ -269,11 +269,10 @@ Token Lexer::next_token() {
       return number_token();
     }
     if (match("inf.0", true)) {
-      return make_token(c == '+' ? Token::Type::PLUS_INF
-                                 : Token::Type::MINUS_INF);
+      return make_token(Token::Type::NUMBER);
     }
     if (match("nan.0", true)) {
-      return make_token(Token::Type::NAN_VAL);
+      return make_token(Token::Type::NUMBER);
     }
     return symbol_token();
 

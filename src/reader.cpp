@@ -160,9 +160,6 @@ class Reader {
       return true;
     case Token::Type::FALSE:
       return false;
-    case Token::Type::PLUS_INF:
-    case Token::Type::MINUS_INF:
-    case Token::Type::NAN_VAL:
     case Token::Type::NUMBER:
       return Number::parse(token.lexeme, context);
     case Token::Type::STRING:

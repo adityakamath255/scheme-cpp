@@ -21,9 +21,6 @@ struct Token {
     BACKTICK,
     COMMA,
     SPLICE_COMMA,
-    PLUS_INF,
-    MINUS_INF,
-    NAN_VAL,
     VEC_BEGIN,
   } type;
 
