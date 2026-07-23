@@ -427,13 +427,27 @@ static std::vector<const Expr *> parse_operands(Parser &parser, Obj rest,
 }
 
 const Expr *Parser::parse_and(Obj rest) {
+  auto operands = parse_operands(*this, rest, "and");
+  if (operands.empty()) {
+    return context.alloc<LiteralExpr>(true);
+  }
+  if (operands.size() == 1) {
+    return operands.front();
+  }
   return context.alloc<LogicalExpr>(
-      LogicalKind::And, parse_operands(*this, rest, "and"));
+      LogicalKind::And, std::move(operands));
 }
 
 const Expr *Parser::parse_or(Obj rest) {
+  auto operands = parse_operands(*this, rest, "or");
+  if (operands.empty()) {
+    return context.alloc<LiteralExpr>(false);
+  }
+  if (operands.size() == 1) {
+    return operands.front();
+  }
   return context.alloc<LogicalExpr>(
-      LogicalKind::Or, parse_operands(*this, rest, "or"));
+      LogicalKind::Or, std::move(operands));
 }
 
 const QuasiquoteTemplate *Parser::quasiquote_form(

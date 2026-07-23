@@ -110,10 +110,6 @@ const std::string_view preamble = R"(
         (iter lists '())))
 
   (define (append! . lists)
-    (define (find-last-pair lst)
-      (if (null? (cdr lst))
-          lst
-          (find-last-pair (cdr lst))))
     (cond ((null? lists) '())
           ((null? (cdr lists)) (car lists))
           (else
@@ -121,7 +117,7 @@ const std::string_view preamble = R"(
              (if (null? first-list)
                  (apply append! (cdr lists))
                  (begin
-                   (set-cdr! (find-last-pair first-list)
+                   (set-cdr! (last-pair first-list)
                              (apply append! (cdr lists)))
                    first-list))))))
 

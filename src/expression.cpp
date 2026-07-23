@@ -23,9 +23,6 @@ EvalResult apply_procedure(Obj, std::vector<Obj>, Ctx &);
 
 EvalResult eval_sequence(std::span<const Expr *const> expressions,
                          Env &env, Ctx &context) {
-  if (expressions.empty()) {
-    return Obj(Void{});
-  }
   for (const Expr *expression : expressions.first(expressions.size() - 1)) {
     context.eval(expression, env);
   }
@@ -215,9 +212,6 @@ LogicalExpr::LogicalExpr(LogicalKind kind,
 
 EvalResult LogicalExpr::eval(Env &env, Ctx &context) const {
   bool conjunction = kind == LogicalKind::And;
-  if (operands.empty()) {
-    return Obj(conjunction);
-  }
   for (const Expr *operand :
        std::span{operands}.first(operands.size() - 1)) {
     Obj value = context.eval(operand, env);

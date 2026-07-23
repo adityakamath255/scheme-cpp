@@ -25,6 +25,24 @@ static void print_batch_event(const scheme::Event &event) {
   }
 }
 
+static std::optional<int> execute_batch(std::istream &input,
+                                        scheme::Session &session) {
+  std::ostringstream buffer;
+  buffer << input.rdbuf();
+
+  try {
+    session.execute(buffer.str(), print_batch_event);
+    return std::nullopt;
+  }
+  catch (const scheme::ExitRequest &request) {
+    return request.status();
+  }
+  catch (const std::exception &e) {
+    std::cerr << "error: " << e.what() << "\n";
+    return 1;
+  }
+}
+
 static void repl(scheme::Session &session) {
   replxx::Replxx rx;
   rx.set_max_history_size(1024);
@@ -105,33 +123,13 @@ int main(int argc, char *argv[]) {
       std::cerr << "error: could not open " << *filename << "\n";
       return 1;
     }
-    std::ostringstream buf;
-    buf << file.rdbuf();
-
-    try {
-      session.execute(buf.str(), print_batch_event);
-    }
-    catch (const scheme::ExitRequest &request) {
-      return request.status();
-    }
-    catch (const std::exception &e) {
-      std::cerr << "error: " << e.what() << "\n";
-      return 1;
+    if (auto status = execute_batch(file, session)) {
+      return *status;
     }
   }
   else if (!isatty(STDIN_FILENO)) {
-    std::ostringstream buf;
-    buf << std::cin.rdbuf();
-
-    try {
-      session.execute(buf.str(), print_batch_event);
-    }
-    catch (const scheme::ExitRequest &request) {
-      return request.status();
-    }
-    catch (const std::exception &e) {
-      std::cerr << "error: " << e.what() << "\n";
-      return 1;
+    if (auto status = execute_batch(std::cin, session)) {
+      return *status;
     }
   }
 
