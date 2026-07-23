@@ -43,6 +43,7 @@ struct Mp {
 
 // a bignum never holds a value that fits a fixnum
 
+// excluding INT64_MIN keeps negation and abs closed over fixnums
 constexpr int64_t fixnum_min = std::numeric_limits<int64_t>::min() + 1;
 constexpr int64_t fixnum_max = std::numeric_limits<int64_t>::max();
 constexpr double int64_magnitude = 0x1p63;

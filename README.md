@@ -307,6 +307,16 @@ The two frontends use `scheme::Session` through
 - `web/main.cpp` - wraps `scheme::Session` with Embind (see [Web](#web)),
   compiled to WebAssembly.
 
+## Internals
+
+`define` is an expression and can appear in any expression position. Macros
+take precedence over lexical bindings in operator position. `load` forwards
+program output but suppresses result echo.
+
+Parsing and evaluation share one recursion budget for deep non-tail work.
+Garbage collection runs only between top-level forms, so memory used within
+one top-level form is unbounded.
+
 ## Limitations
 
 - No hygienic macros (`define-syntax`, `syntax-rules`). `define-macro` is non-hygienic.

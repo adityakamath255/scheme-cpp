@@ -10,6 +10,7 @@
 #include <format>
 #include <ranges>
 #include <string>
+#include <unordered_set>
 #include <utility>
 
 namespace {
@@ -493,13 +494,26 @@ Formals Formals::parse(Obj formals) {
     fixed.push_back(*symbol);
   }
 
-  if (params.proper()) {
-    return {std::move(fixed), std::nullopt};
+  std::optional<Symbol> rest;
+  if (!params.proper()) {
+    if (auto tail = params.tail.try_as_symbol()) {
+      rest = *tail;
+    } else {
+      throw SchemeError("invalid parameter list");
+    }
   }
-  if (auto rest = params.tail.try_as_symbol()) {
-    return {std::move(fixed), *rest};
+
+  std::unordered_set<Symbol> names;
+  for (Symbol name : fixed) {
+    if (!names.insert(name).second) {
+      throw SchemeError("duplicate parameter name");
+    }
   }
-  throw SchemeError("invalid parameter list");
+  if (rest && !names.insert(*rest).second) {
+    throw SchemeError("duplicate parameter name");
+  }
+
+  return {std::move(fixed), rest};
 }
 
 void Formals::bind(Env &env, const std::vector<Obj> &args,

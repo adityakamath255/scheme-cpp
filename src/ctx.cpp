@@ -73,6 +73,8 @@ void Ctx::own(std::unique_ptr<HeapEntity> object) {
 }
 
 Symbol Ctx::intern(std::string_view name) {
+  // interned strings are never erased; symbol pointers stay stable for the
+  // session lifetime
   auto [symbol, _] = interned.insert(std::string(name));
   return Symbol{*symbol};
 }
