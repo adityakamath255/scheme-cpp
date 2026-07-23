@@ -55,8 +55,8 @@ EvalResult apply_procedure(Obj procedure, std::vector<Obj> arguments,
     if (procedure.is_procedure()) {
       Procedure *callable = procedure.as_procedure();
       Env &env = *context.alloc<Env>(&callable->env.get());
-      callable->formals.bind(env, arguments, context);
-      return TailCall{callable->body, env};
+      callable->code->formals.bind(env, arguments, context);
+      return TailCall{callable->code->body, env};
     }
 
     if (procedure.is_builtin()) {
@@ -128,7 +128,7 @@ LambdaExpr::LambdaExpr(Formals formals, const Expr *body)
     : formals{std::move(formals)}, body{body} {}
 
 EvalResult LambdaExpr::eval(Env &env, Ctx &context) const {
-  return Obj(context.alloc<Procedure>(formals, body, env));
+  return Obj(context.alloc<Procedure>(this, env));
 }
 
 void LambdaExpr::trace(std::vector<const HeapEntity *> &worklist) const {

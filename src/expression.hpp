@@ -65,10 +65,10 @@ public:
 };
 
 class LambdaExpr final : public Expr {
+public:
   const Formals formals;
   const Expr *const body;
 
-public:
   LambdaExpr(Formals formals, const Expr *body);
 
   EvalResult eval(Env &, Ctx &) const override;

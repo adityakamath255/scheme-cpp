@@ -32,6 +32,7 @@ class Obj;
 class Env;
 class Ctx;
 class Expr;
+class LambdaExpr;
 struct HeapEntity;
 struct ListProfile;
 
@@ -242,11 +243,10 @@ struct Formals {
 };
 
 struct Procedure : HeapEntity {
-  const Formals formals;
-  const Expr *const body;
+  const LambdaExpr *const code;
   const std::reference_wrapper<Env> env;
 
-  Procedure(Formals formals, const Expr *body, Env &env);
+  Procedure(const LambdaExpr *code, Env &env);
 
   void trace(std::vector<const HeapEntity *> &) const override;
 };

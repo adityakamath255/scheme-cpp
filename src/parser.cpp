@@ -115,8 +115,8 @@ Obj Parser::expand_macro(Obj expression, Procedure *macro) {
       list_elements(expression.cdr(),
                     expression.car().as_symbol().name());
   Env &env = *context.alloc<Env>(&macro->env.get());
-  macro->formals.bind(env, arguments, context);
-  return context.eval(macro->body, env);
+  macro->code->formals.bind(env, arguments, context);
+  return context.eval(macro->code->body, env);
 }
 
 Obj Parser::expand_head(Obj expression) {
@@ -552,8 +552,10 @@ void Parser::define_macro(Obj rest, Env &env) {
     Symbol name = target.car().as_symbol();
     Formals formals = Formals::parse(target.cdr());
     const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
+    const auto *code =
+        context.alloc<LambdaExpr>(std::move(formals), body);
     context.define_macro(
-        name, context.alloc<Procedure>(std::move(formals), body, env));
+        name, context.alloc<Procedure>(code, env));
     return;
   }
 

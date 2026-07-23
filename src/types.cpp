@@ -423,11 +423,11 @@ void Vector::trace(std::vector<const HeapEntity *> &worklist) const {
 Builtin::Builtin(Builtin::Implementation implementation)
     : implementation{std::move(implementation)} {}
 
-Procedure::Procedure(Formals formals, const Expr *body, Env &env)
-    : formals{std::move(formals)}, body{body}, env{env} {}
+Procedure::Procedure(const LambdaExpr *code, Env &env)
+    : code{code}, env{env} {}
 
 void Procedure::trace(std::vector<const HeapEntity *> &worklist) const {
-  worklist.push_back(body);
+  worklist.push_back(code);
   worklist.push_back(&env.get());
 }
 
