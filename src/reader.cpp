@@ -22,25 +22,11 @@ std::string process_escapes(std::string_view raw) {
     }
 
     i += 1;
-    switch (raw[i]) {
-    case 'n':
-      result += '\n';
-      break;
-    case 't':
-      result += '\t';
-      break;
-    case 'r':
-      result += '\r';
-      break;
-    case '\\':
-      result += '\\';
-      break;
-    case '"':
-      result += '"';
-      break;
-    default:
+    auto character = decode_string_escape(raw[i]);
+    if (!character) {
       throw SchemeError("invalid escape sequence");
     }
+    result += *character;
   }
 
   return result;
@@ -122,17 +108,8 @@ class Reader {
 
   Obj read_char(std::string_view lexeme) {
     std::string_view name = lexeme.substr(2);
-    if (name == "space") {
-      return ' ';
-    }
-    if (name == "newline") {
-      return '\n';
-    }
-    if (name == "tab") {
-      return '\t';
-    }
-    if (name == "return") {
-      return '\r';
+    if (auto character = decode_character_name(name)) {
+      return *character;
     }
     if (name.size() == 1) {
       return name.front();

@@ -3,6 +3,7 @@ interface SchemeOptions {
   printErr?: (text: string) => void;
 }
 
+// message kinds are defined in web/main.cpp.
 type Message = { kind: "out" | "res"; text: string };
 
 type RunResult =

@@ -3,12 +3,38 @@
 #include "expression.hpp"
 
 #include <algorithm>
+#include <array>
 #include <format>
 #include <ranges>
 #include <string>
 #include <utility>
 
 namespace {
+
+struct StringEscape {
+  char character;
+  char escape;
+};
+
+constexpr std::array string_escapes{
+    StringEscape{'\n', 'n'},
+    StringEscape{'\t', 't'},
+    StringEscape{'\r', 'r'},
+    StringEscape{'\\', '\\'},
+    StringEscape{'"', '"'},
+};
+
+struct CharacterName {
+  std::string_view name;
+  char character;
+};
+
+constexpr std::array character_names{
+    CharacterName{"space", ' '},
+    CharacterName{"newline", '\n'},
+    CharacterName{"tab", '\t'},
+    CharacterName{"return", '\r'},
+};
 
 template <typename T>
 constexpr std::string_view type_name_for();
@@ -91,6 +117,38 @@ T expect(const Value &data) {
       "expected {}, got {}", type_name_for<T>(), Obj(data).type_name()));
 }
 
+}
+
+std::optional<char> decode_string_escape(char escape) {
+  auto found =
+      std::ranges::find(string_escapes, escape, &StringEscape::escape);
+  return found == string_escapes.end()
+             ? std::nullopt
+             : std::optional{found->character};
+}
+
+std::optional<char> encode_string_escape(char character) {
+  auto found = std::ranges::find(
+      string_escapes, character, &StringEscape::character);
+  return found == string_escapes.end()
+             ? std::nullopt
+             : std::optional{found->escape};
+}
+
+std::optional<char> decode_character_name(std::string_view name) {
+  auto found =
+      std::ranges::find(character_names, name, &CharacterName::name);
+  return found == character_names.end()
+             ? std::nullopt
+             : std::optional{found->character};
+}
+
+std::optional<std::string_view> encode_character_name(char character) {
+  auto found = std::ranges::find(
+      character_names, character, &CharacterName::character);
+  return found == character_names.end()
+             ? std::nullopt
+             : std::optional{found->name};
 }
 
 Symbol::Symbol(const std::string &name) : ptr{&name} {}
@@ -297,18 +355,10 @@ static std::string render(Obj obj, bool write) {
         if (!write) {
           return std::string(1, value);
         }
-        switch (value) {
-        case ' ':
-          return "#\\space";
-        case '\n':
-          return "#\\newline";
-        case '\t':
-          return "#\\tab";
-        case '\r':
-          return "#\\return";
-        default:
-          return std::string("#\\") + value;
+        if (auto name = encode_character_name(value)) {
+          return "#\\" + std::string(*name);
         }
+        return std::string("#\\") + value;
       },
       [](Number value) { return value.to_string(); },
       [](Symbol value) { return value.name(); },
@@ -318,25 +368,11 @@ static std::string render(Obj obj, bool write) {
         }
         std::string result = "\"";
         for (char character : value->data) {
-          switch (character) {
-          case '"':
-            result += "\\\"";
-            break;
-          case '\\':
-            result += "\\\\";
-            break;
-          case '\n':
-            result += "\\n";
-            break;
-          case '\t':
-            result += "\\t";
-            break;
-          case '\r':
-            result += "\\r";
-            break;
-          default:
+          if (auto escape = encode_string_escape(character)) {
+            result += '\\';
+            result += *escape;
+          } else {
             result += character;
-            break;
           }
         }
         result += '"';

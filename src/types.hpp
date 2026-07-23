@@ -17,6 +17,11 @@ template <class... Ts> struct overloaded : Ts... {
 };
 template <class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
+std::optional<char> decode_string_escape(char escape);
+std::optional<char> encode_string_escape(char character);
+std::optional<char> decode_character_name(std::string_view name);
+std::optional<std::string_view> encode_character_name(char character);
+
 class Symbol;
 struct String;
 struct Cons;
