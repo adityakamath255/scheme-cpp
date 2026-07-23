@@ -499,25 +499,17 @@ static void install_lists(Installer install) {
     if (!list.is_null() && !list.is_cons()) {
       throw CallError("expected list, got " + list.type_name());
     }
-    auto profile = list.list_profile();
-    if (!profile.is_proper()) {
+    List parts{list};
+    if (!parts.proper()) {
       throw CallError("expected proper list");
     }
-    return Number::exact(static_cast<int64_t>(profile.size), context);
+    return Number::exact(
+        static_cast<int64_t>(parts.elements.size()), context);
   });
   install("list-ref", [](Args raw, Ctx &) -> Obj {
     auto [pair, index] = match(raw, arg::pair, arg::index);
-    Obj current = pair;
-    for (size_t i = 0; i < index; i += 1) {
-      if (!current.is_cons()) {
-        throw CallError("index out of range");
-      }
-      current = current.cdr();
-    }
-    if (!current.is_cons()) {
-      throw CallError("index out of range");
-    }
-    return current.car();
+    List list{pair};
+    return element_at(list.elements, index);
   });
   install("set-car!", [](Args raw, Ctx &) {
     auto [pair, value] = match(raw, arg::pair, arg::any);
@@ -582,12 +574,12 @@ static void install_strings(Installer install) {
     return list_from(match(raw, arg::string)->data, context);
   });
   install("list->string", [](Args raw, Ctx &context) -> Obj {
-    ListView list{match(raw, arg::any)};
-    if (!list.tail().is_null()) {
+    List list{match(raw, arg::any)};
+    if (!list.proper()) {
       throw CallError("expected proper list");
     }
     return context.alloc<String>(std::ranges::to<std::string>(
-        list | std::views::transform([](Obj value) {
+        list.elements | std::views::transform([](Obj value) {
           return arg::character.decode(value);
         })));
   });
@@ -675,11 +667,11 @@ static void install_vectors(Installer install) {
     return list_from(match(raw, arg::vector)->data, context);
   });
   install("list->vector", [](Args raw, Ctx &context) -> Obj {
-    ListView list{match(raw, arg::any)};
-    if (!list.tail().is_null()) {
+    List list{match(raw, arg::any)};
+    if (!list.proper()) {
       throw CallError("expected proper list");
     }
-    return context.alloc<Vector>(std::ranges::to<std::vector>(list));
+    return context.alloc<Vector>(std::move(list.elements));
   });
 }
 

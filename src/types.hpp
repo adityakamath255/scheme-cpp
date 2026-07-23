@@ -4,7 +4,6 @@
 
 #include <cstddef>
 #include <functional>
-#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -34,7 +33,6 @@ class Ctx;
 class Expr;
 class LambdaExpr;
 struct HeapEntity;
-struct ListProfile;
 
 using Value =
     std::variant<bool, char, Number, Symbol, String *, Cons *, Vector *,
@@ -135,46 +133,19 @@ public:
   std::string to_display() const;
   std::string type_name() const;
 
-  ListProfile list_profile() const;
   bool is_list() const;
 
   Obj car() const;
   Obj cdr() const;
 };
 
-class ListView {
-  Obj head;
-
-public:
-  explicit ListView(Obj head);
-
-  class iterator {
-    Obj cur;
-
-  public:
-    using value_type = Obj;
-    using difference_type = std::ptrdiff_t;
-    using iterator_concept = std::input_iterator_tag;
-
-    explicit iterator(Obj cur);
-
-    Obj operator*() const;
-    iterator &operator++();
-    iterator operator++(int);
-
-    bool operator==(std::default_sentinel_t) const;
-  };
-
-  iterator begin() const;
-  std::default_sentinel_t end() const;
-  Obj tail() const;
-};
-
-struct ListProfile {
-  size_t size;
+struct List {
+  std::vector<Obj> elements;
   Obj tail;
 
-  bool is_proper() const { return tail.is_null(); }
+  explicit List(Obj value);
+
+  bool proper() const;
 };
 
 void trace_child(Obj obj, std::vector<const HeapEntity *> &worklist);

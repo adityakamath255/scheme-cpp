@@ -38,14 +38,14 @@ splice_apply(const std::vector<Obj> &arguments) {
     throw SchemeError("apply: expected at least 2 arguments");
   }
 
-  ListView rest{arguments.back()};
-  if (!rest.tail().is_null()) {
+  List rest{arguments.back()};
+  if (!rest.proper()) {
     throw SchemeError("apply: last argument must be a proper list");
   }
 
   std::vector<Obj> call_arguments(arguments.begin() + 1,
                                   arguments.end() - 1);
-  call_arguments.append_range(rest);
+  call_arguments.append_range(rest.elements);
   return {arguments.front(), std::move(call_arguments)};
 }
 

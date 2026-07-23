@@ -44,21 +44,20 @@ Formals Formals::parse(Obj formals) {
     return {{}, formals.as_symbol()};
   }
 
-  ListView params{formals};
+  List params{formals};
   std::vector<Symbol> fixed;
-  for (Obj param : params) {
+  for (Obj param : params.elements) {
     if (!param.is_symbol()) {
       throw SchemeError("parameter must be a symbol");
     }
     fixed.push_back(param.as_symbol());
   }
 
-  Obj tail = params.tail();
-  if (tail.is_null()) {
+  if (params.proper()) {
     return {std::move(fixed), std::nullopt};
   }
-  if (tail.is_symbol()) {
-    return {std::move(fixed), tail.as_symbol()};
+  if (params.tail.is_symbol()) {
+    return {std::move(fixed), params.tail.as_symbol()};
   }
   throw SchemeError("invalid parameter list");
 }

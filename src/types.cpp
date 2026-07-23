@@ -171,10 +171,12 @@ bool Obj::equals(Obj other) const {
     return true;
 
   case Type::Cons: {
-    ListView a{*this};
-    ListView b{other};
-    return std::ranges::equal(a, b, [](Obj x, Obj y) { return x.equals(y); }) &&
-           a.tail().equals(b.tail());
+    List a{*this};
+    List b{other};
+    return std::ranges::equal(
+               a.elements, b.elements,
+               [](Obj x, Obj y) { return x.equals(y); }) &&
+           a.tail.equals(b.tail);
   }
 
   case Type::Vector:
@@ -259,10 +261,11 @@ static std::string render(Obj obj, bool write) {
     }
 
   case Type::Cons: {
-    ListView list{obj};
-    Obj tail = list.tail();
-    std::string dotted = tail.is_null() ? "" : " . " + render(tail, write);
-    return "(" + join_elems(list, write) + dotted + ")";
+    List list{obj};
+    std::string dotted = list.proper()
+                             ? ""
+                             : " . " + render(list.tail, write);
+    return "(" + join_elems(list.elements, write) + dotted + ")";
   }
 
   case Type::Vector:
@@ -324,46 +327,16 @@ Obj Obj::car() const { return as_cons()->car; }
 
 Obj Obj::cdr() const { return as_cons()->cdr; }
 
-ListView::ListView(Obj head) : head{head} {}
-
-ListView::iterator::iterator(Obj cur) : cur{cur} {}
-
-Obj ListView::iterator::operator*() const { return cur.car(); }
-
-ListView::iterator &ListView::iterator::operator++() {
-  cur = cur.cdr();
-  return *this;
-}
-
-ListView::iterator ListView::iterator::operator++(int) {
-  iterator tmp = *this;
-  ++*this;
-  return tmp;
-}
-
-bool ListView::iterator::operator==(std::default_sentinel_t) const {
-  return !cur.is_cons();
-}
-
-ListView::iterator ListView::begin() const { return iterator{head}; }
-
-std::default_sentinel_t ListView::end() const { return {}; }
-
-Obj ListView::tail() const {
-  return head.list_profile().tail;
-}
-
-ListProfile Obj::list_profile() const {
-  size_t len = 0;
-  Obj curr = *this;
-  while (curr.is_cons()) {
-    len += 1;
-    curr = curr.cdr();
+List::List(Obj value) : elements{}, tail{value} {
+  while (tail.is_cons()) {
+    elements.push_back(tail.car());
+    tail = tail.cdr();
   }
-  return {.size = len, .tail = curr};
 }
 
-bool Obj::is_list() const { return list_profile().is_proper(); }
+bool List::proper() const { return tail.is_null(); }
+
+bool Obj::is_list() const { return List{*this}.proper(); }
 
 String::String(std::string data) : data{std::move(data)} {}
 
@@ -455,9 +428,11 @@ Error::Error(std::string message, Obj irritants)
     : message{std::move(message)}, irritants{irritants} {}
 
 std::string Error::describe() const {
-  return irritants.is_null()
-             ? message
-             : message + " " + join_elems(ListView{irritants}, true);
+  if (irritants.is_null()) {
+    return message;
+  }
+  List list{irritants};
+  return message + " " + join_elems(list.elements, true);
 }
 
 void Error::trace(std::vector<const HeapEntity *> &worklist) const {

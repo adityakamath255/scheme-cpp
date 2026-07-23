@@ -2,7 +2,6 @@
 
 #include "ctx.hpp"
 
-#include <ranges>
 #include <utility>
 #include <variant>
 
@@ -24,12 +23,11 @@ void trace_quasiquote_element(
 
 std::vector<Obj> instantiate_splice(
     const Expr *expression, Env &env, Ctx &context) {
-  Obj values = context.eval(expression, env);
-  auto profile = values.list_profile();
-  if (!profile.is_proper()) {
+  List values{context.eval(expression, env)};
+  if (!values.proper()) {
     throw SchemeError("unquote-splicing: expected proper list");
   }
-  return std::ranges::to<std::vector>(ListView{values});
+  return std::move(values.elements);
 }
 
 }

@@ -3,7 +3,6 @@
 #include "quasiquote.hpp"
 
 #include <format>
-#include <ranges>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -18,23 +17,23 @@ static bool is_keyword(Obj obj, std::string_view name) {
 }
 
 static std::vector<Obj> list_elements(Obj list, std::string_view name) {
-  auto profile = list.list_profile();
-  if (!profile.is_proper()) {
+  List parts{list};
+  if (!parts.proper()) {
     throw SchemeError(std::format("{}: expected proper list", name));
   }
-  return std::ranges::to<std::vector>(ListView{list});
+  return std::move(parts.elements);
 }
 
 static std::vector<Obj> form_arguments(Obj rest, std::string_view name,
                                        Arity arity) {
-  auto profile = rest.list_profile();
-  if (!profile.is_proper()) {
+  List arguments{rest};
+  if (!arguments.proper()) {
     throw SchemeError(std::format("{}: improper argument list", name));
   }
-  if (auto error = arity.mismatch(profile.size)) {
+  if (auto error = arity.mismatch(arguments.elements.size())) {
     throw SchemeError(std::format("{}: {}", name, *error));
   }
-  return std::ranges::to<std::vector>(ListView{rest});
+  return std::move(arguments.elements);
 }
 
 class Parser {
