@@ -211,38 +211,6 @@ void LetExpr::trace(std::vector<const HeapEntity *> &worklist) const {
   trace_expression(body, worklist);
 }
 
-NamedLetExpr::NamedLetExpr(Symbol name, std::vector<Binding> bindings,
-                           const Expr *body)
-    : name{name}, bindings{std::move(bindings)}, body{body} {}
-
-EvalResult NamedLetExpr::eval(Env &env, Ctx &context) const {
-  std::vector<Symbol> parameters;
-  std::vector<Obj> arguments;
-  parameters.reserve(bindings.size());
-  arguments.reserve(bindings.size());
-  for (const auto &binding : bindings) {
-    parameters.push_back(binding.name);
-    arguments.push_back(context.eval(binding.initializer, env));
-  }
-
-  Env &loop_env = *context.alloc<Env>(&env);
-  auto *procedure = context.alloc<Procedure>(
-      Formals{std::move(parameters), std::nullopt}, body, loop_env);
-  loop_env.define(name, procedure);
-
-  Env &call_env = *context.alloc<Env>(&loop_env);
-  procedure->formals.bind(call_env, arguments, context);
-  return TailCall{body, call_env};
-}
-
-void NamedLetExpr::trace(
-    std::vector<const HeapEntity *> &worklist) const {
-  for (const auto &binding : bindings) {
-    trace_expression(binding.initializer, worklist);
-  }
-  trace_expression(body, worklist);
-}
-
 LogicalExpr::LogicalExpr(LogicalKind kind,
                          std::vector<const Expr *> operands)
     : kind{kind}, operands{std::move(operands)} {}

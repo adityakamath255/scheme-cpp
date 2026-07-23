@@ -128,19 +128,6 @@ public:
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
-class NamedLetExpr final : public Expr {
-  const Symbol name;
-  const std::vector<Binding> bindings;
-  const Expr *const body;
-
-public:
-  NamedLetExpr(Symbol name, std::vector<Binding> bindings,
-               const Expr *body);
-
-  EvalResult eval(Env &, Ctx &) const override;
-  void trace(std::vector<const HeapEntity *> &) const override;
-};
-
 enum class LogicalKind { And, Or };
 
 class LogicalExpr final : public Expr {

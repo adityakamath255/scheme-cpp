@@ -299,7 +299,22 @@ const Expr *Parser::parse_let(Obj rest) {
   Symbol name = arguments.front().as_symbol();
   std::vector<Binding> bindings = parse_bindings(arguments[1], "let");
   const Expr *body = parse_sequence(std::span{arguments}.subspan(2));
-  return context.alloc<NamedLetExpr>(name, std::move(bindings), body);
+
+  std::vector<Symbol> parameters;
+  std::vector<const Expr *> initializers;
+  parameters.reserve(bindings.size());
+  initializers.reserve(bindings.size());
+  for (const Binding &binding : bindings) {
+    parameters.push_back(binding.name);
+    initializers.push_back(binding.initializer);
+  }
+
+  const Expr *lambda = context.alloc<LambdaExpr>(
+      Formals{std::move(parameters), std::nullopt}, body);
+  const Expr *procedure = context.alloc<LetExpr>(
+      LetKind::Rec, std::vector<Binding>{{name, lambda}},
+      context.alloc<ReferenceExpr>(name));
+  return context.alloc<CallExpr>(procedure, std::move(initializers));
 }
 
 const Expr *Parser::parse_let_star(Obj rest) {
