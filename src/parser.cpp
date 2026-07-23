@@ -13,7 +13,8 @@ static constexpr size_t max_macro_expansions = 1000;
 namespace {
 
 static bool is_keyword(Obj obj, std::string_view name) {
-  return obj.is_symbol() && obj.as_symbol().name() == name;
+  auto symbol = obj.try_as_symbol();
+  return symbol && symbol->name() == name;
 }
 
 static std::vector<Obj> list_elements(Obj list, std::string_view name) {
@@ -42,7 +43,7 @@ class Parser {
   using FormParser = const Expr *(Parser::*)(Obj);
 
   FormParser form_parser(std::string_view name) const;
-  Obj expand_macro(Obj expression, Procedure *macro);
+  Obj expand_macro(Obj arguments, Symbol name, Procedure *macro);
 
   const Expr *parse_quote(Obj);
   const Expr *parse_if(Obj);
@@ -109,56 +110,58 @@ Parser::FormParser Parser::form_parser(std::string_view name) const {
   return parser == forms.end() ? nullptr : parser->second;
 }
 
-Obj Parser::expand_macro(Obj expression, Procedure *macro) {
-  std::vector<Obj> arguments =
-      list_elements(expression.cdr(),
-                    expression.car().as_symbol().name());
+Obj Parser::expand_macro(Obj arguments, Symbol name, Procedure *macro) {
+  std::vector<Obj> elements = list_elements(arguments, name.name());
   Env &env = *context.alloc<Env>(&macro->env.get());
-  macro->code->formals.bind(env, arguments, context);
+  macro->code->formals.bind(env, elements, context);
   return context.eval(macro->code->body, env);
 }
 
 Obj Parser::expand_head(Obj expression) {
   for (size_t expansions = 0; expansions < max_macro_expansions;
        expansions += 1) {
-    if (!expression.is_cons() || !expression.car().is_symbol()) {
+    Cons *form = expression.try_as_cons();
+    if (!form) {
       return expression;
     }
-    Symbol name = expression.car().as_symbol();
-    if (form_parser(name.name())) {
+    auto name = form->car.try_as_symbol();
+    if (!name) {
       return expression;
     }
-    Procedure *macro = context.lookup_macro(name);
+    if (form_parser(name->name())) {
+      return expression;
+    }
+    Procedure *macro = context.lookup_macro(*name);
     if (!macro) {
       return expression;
     }
-    expression = expand_macro(expression, macro);
+    expression = expand_macro(form->cdr, *name, macro);
   }
   throw SchemeError("macro expansion too deep");
 }
 
 const Expr *Parser::parse(Obj datum) {
   Ctx::DepthGuard guard{context};
-  if (datum.is_symbol()) {
-    return context.alloc<ReferenceExpr>(datum.as_symbol());
+  if (auto symbol = datum.try_as_symbol()) {
+    return context.alloc<ReferenceExpr>(*symbol);
   }
-  if (!datum.is_cons()) {
+  Cons *form = datum.try_as_cons();
+  if (!form) {
     return context.alloc<LiteralExpr>(datum);
   }
 
-  Obj head = datum.car();
-  if (head.is_symbol()) {
-    Symbol name = head.as_symbol();
-    if (auto parser = form_parser(name.name())) {
-      return (this->*parser)(datum.cdr());
+  Obj head = form->car;
+  if (auto name = head.try_as_symbol()) {
+    if (auto parser = form_parser(name->name())) {
+      return (this->*parser)(form->cdr);
     }
-    if (Procedure *macro = context.lookup_macro(name)) {
-      return parse(expand_macro(datum, macro));
+    if (Procedure *macro = context.lookup_macro(*name)) {
+      return parse(expand_macro(form->cdr, *name, macro));
     }
   }
 
   std::vector<Obj> raw_arguments =
-      list_elements(datum.cdr(), "procedure call");
+      list_elements(form->cdr, "procedure call");
   const Expr *procedure = parse(head);
   std::vector<const Expr *> arguments;
   arguments.reserve(raw_arguments.size());
@@ -202,23 +205,24 @@ const Expr *Parser::parse_define(Obj rest) {
   auto arguments = form_arguments(rest, "define", Arity::at_least(1));
   Obj target = arguments.front();
 
-  if (target.is_cons()) {
-    if (!target.car().is_symbol()) {
+  if (Cons *signature = target.try_as_cons()) {
+    auto name = signature->car.try_as_symbol();
+    if (!name) {
       throw SchemeError("define: procedure name must be a symbol");
     }
     if (arguments.size() < 2) {
       throw SchemeError("define: procedure body cannot be empty");
     }
-    Symbol name = target.car().as_symbol();
-    Formals formals = Formals::parse(target.cdr());
+    Formals formals = Formals::parse(signature->cdr);
     const Expr *body = parse_sequence(
         std::span{arguments}.subspan(1));
     const Expr *lambda =
         context.alloc<LambdaExpr>(std::move(formals), body);
-    return context.alloc<DefineExpr>(name, lambda);
+    return context.alloc<DefineExpr>(*name, lambda);
   }
 
-  if (!target.is_symbol()) {
+  auto name = target.try_as_symbol();
+  if (!name) {
     throw SchemeError("define: expected symbol or list, got " +
                       target.type_name());
   }
@@ -229,17 +233,17 @@ const Expr *Parser::parse_define(Obj rest) {
   const Expr *initializer = arguments.size() == 2
                                 ? parse(arguments[1])
                                 : context.alloc<LiteralExpr>(Void{});
-  return context.alloc<DefineExpr>(target.as_symbol(), initializer);
+  return context.alloc<DefineExpr>(*name, initializer);
 }
 
 const Expr *Parser::parse_set(Obj rest) {
   auto arguments = form_arguments(rest, "set!", Arity::exactly(2));
-  if (!arguments[0].is_symbol()) {
+  auto name = arguments[0].try_as_symbol();
+  if (!name) {
     throw SchemeError("set!: expected symbol, got " +
                       arguments[0].type_name());
   }
-  return context.alloc<SetExpr>(arguments[0].as_symbol(),
-                                parse(arguments[1]));
+  return context.alloc<SetExpr>(*name, parse(arguments[1]));
 }
 
 const Expr *Parser::parse_lambda(Obj rest) {
@@ -265,11 +269,12 @@ std::vector<Binding> Parser::parse_bindings(Obj datum,
       throw SchemeError(std::format(
           "{}: binding must contain a name and initializer", name));
     }
-    if (!parts[0].is_symbol()) {
+    auto binding_name = parts[0].try_as_symbol();
+    if (!binding_name) {
       throw SchemeError(std::format(
           "{}: binding name must be a symbol", name));
     }
-    bindings.push_back({parts[0].as_symbol(), parse(parts[1])});
+    bindings.push_back({*binding_name, parse(parts[1])});
   }
   return bindings;
 }
@@ -284,7 +289,8 @@ const LetExpr *Parser::parse_ordinary_let(Obj rest, LetKind kind,
 
 const Expr *Parser::parse_let(Obj rest) {
   auto arguments = form_arguments(rest, "let", Arity::at_least(2));
-  if (!arguments.front().is_symbol()) {
+  auto name = arguments.front().try_as_symbol();
+  if (!name) {
     std::vector<Binding> bindings =
         parse_bindings(arguments.front(), "let");
     const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
@@ -295,7 +301,6 @@ const Expr *Parser::parse_let(Obj rest) {
   if (arguments.size() < 3) {
     throw SchemeError("let: expected bindings and body");
   }
-  Symbol name = arguments.front().as_symbol();
   std::vector<Binding> bindings = parse_bindings(arguments[1], "let");
   const Expr *body = parse_sequence(std::span{arguments}.subspan(2));
 
@@ -311,8 +316,8 @@ const Expr *Parser::parse_let(Obj rest) {
   const Expr *lambda = context.alloc<LambdaExpr>(
       Formals{std::move(parameters), std::nullopt}, body);
   const Expr *procedure = context.alloc<LetExpr>(
-      LetKind::Rec, std::vector<Binding>{{name, lambda}},
-      context.alloc<ReferenceExpr>(name));
+      LetKind::Rec, std::vector<Binding>{{*name, lambda}},
+      context.alloc<ReferenceExpr>(*name));
   return context.alloc<CallExpr>(procedure, std::move(initializers));
 }
 
@@ -443,10 +448,10 @@ const QuasiquoteTemplate *Parser::quasiquote_form(
 
 const QuasiquoteTemplate *Parser::compile_quasiquote(
     Obj datum, size_t quasiquote_depth) {
-  if (datum.is_vector()) {
+  if (Vector *vector = datum.try_as_vector()) {
     std::vector<QuasiquoteElement> elements;
-    elements.reserve(datum.as_vector()->data.size());
-    for (Obj element : datum.as_vector()->data) {
+    elements.reserve(vector->data.size());
+    for (Obj element : vector->data) {
       elements.push_back(
           compile_quasiquote_element(element, quasiquote_depth));
     }
@@ -454,21 +459,21 @@ const QuasiquoteTemplate *Parser::compile_quasiquote(
         QuasiquoteTemplate::VectorElements{std::move(elements)});
   }
 
-  if (!datum.is_cons()) {
+  Cons *pair = datum.try_as_cons();
+  if (!pair) {
     return context.alloc<QuasiquoteTemplate>(datum);
   }
 
-  if (datum.car().is_symbol()) {
-    Symbol keyword = datum.car().as_symbol();
-    bool is_quasiquote = keyword.name() == "quasiquote";
-    bool is_unquote = keyword.name() == "unquote";
-    bool is_splice = keyword.name() == "unquote-splicing";
+  if (auto keyword = pair->car.try_as_symbol()) {
+    bool is_quasiquote = keyword->name() == "quasiquote";
+    bool is_unquote = keyword->name() == "unquote";
+    bool is_splice = keyword->name() == "unquote-splicing";
     if (is_quasiquote || is_unquote || is_splice) {
-      auto arguments = form_arguments(datum.cdr(), keyword.name(),
+      auto arguments = form_arguments(pair->cdr, keyword->name(),
                                       Arity::exactly(1));
       if (is_quasiquote) {
         return quasiquote_form(
-            keyword,
+            *keyword,
             compile_quasiquote(arguments.front(), quasiquote_depth + 1));
       }
       if (quasiquote_depth == 1) {
@@ -480,26 +485,28 @@ const QuasiquoteTemplate *Parser::compile_quasiquote(
             QuasiquoteTemplate::Value{parse(arguments.front())});
       }
       return quasiquote_form(
-          keyword,
+          *keyword,
           compile_quasiquote(arguments.front(), quasiquote_depth - 1));
     }
   }
 
   QuasiquoteElement car =
-      compile_quasiquote_element(datum.car(), quasiquote_depth);
+      compile_quasiquote_element(pair->car, quasiquote_depth);
   const QuasiquoteTemplate *cdr =
-      compile_quasiquote(datum.cdr(), quasiquote_depth);
+      compile_quasiquote(pair->cdr, quasiquote_depth);
   return context.alloc<QuasiquoteTemplate>(
       QuasiquoteTemplate::Pair{car, cdr});
 }
 
 QuasiquoteElement Parser::compile_quasiquote_element(
     Obj datum, size_t quasiquote_depth) {
-  if (quasiquote_depth == 1 && datum.is_cons() &&
-      is_keyword(datum.car(), "unquote-splicing")) {
-    auto arguments = form_arguments(
-        datum.cdr(), "unquote-splicing", Arity::exactly(1));
-    return QuasiquoteSplice{parse(arguments.front())};
+  if (quasiquote_depth == 1) {
+    if (Cons *pair = datum.try_as_cons();
+        pair && is_keyword(pair->car, "unquote-splicing")) {
+      auto arguments = form_arguments(
+          pair->cdr, "unquote-splicing", Arity::exactly(1));
+      return QuasiquoteSplice{parse(arguments.front())};
+    }
   }
   return compile_quasiquote(datum, quasiquote_depth);
 }
@@ -514,12 +521,14 @@ const Expr *Parser::parse_quasiquote(Obj rest) {
 const Expr *Parser::parse_guard(Obj rest) {
   auto arguments = form_arguments(rest, "guard", Arity::at_least(2));
   Obj spec = arguments.front();
-  if (!spec.is_cons() || !spec.car().is_symbol()) {
+  Cons *guard = spec.try_as_cons();
+  auto variable = guard ? guard->car.try_as_symbol() : std::nullopt;
+  if (!variable) {
     throw SchemeError("guard: expected (variable clause ...)");
   }
-  const CondExpr *handler = parse_cond_clauses(spec.cdr());
+  const CondExpr *handler = parse_cond_clauses(guard->cdr);
   const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
-  return context.alloc<GuardExpr>(spec.car().as_symbol(), handler, body);
+  return context.alloc<GuardExpr>(*variable, handler, body);
 }
 
 const Expr *Parser::parse_delay(Obj rest) {
@@ -544,21 +553,22 @@ void Parser::define_macro(Obj rest, Env &env) {
       form_arguments(rest, "define-macro", Arity::at_least(2));
   Obj target = arguments.front();
 
-  if (target.is_cons()) {
-    if (!target.car().is_symbol()) {
+  if (Cons *signature = target.try_as_cons()) {
+    auto name = signature->car.try_as_symbol();
+    if (!name) {
       throw SchemeError("define-macro: name must be a symbol");
     }
-    Symbol name = target.car().as_symbol();
-    Formals formals = Formals::parse(target.cdr());
+    Formals formals = Formals::parse(signature->cdr);
     const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
     const auto *code =
         context.alloc<LambdaExpr>(std::move(formals), body);
     context.define_macro(
-        name, context.alloc<Procedure>(code, env));
+        *name, context.alloc<Procedure>(code, env));
     return;
   }
 
-  if (!target.is_symbol()) {
+  auto name = target.try_as_symbol();
+  if (!name) {
     throw SchemeError("define-macro: expected symbol or list");
   }
   if (arguments.size() != 2) {
@@ -566,28 +576,31 @@ void Parser::define_macro(Obj rest, Env &env) {
         "define-macro: expected 2 arguments, got {}", arguments.size()));
   }
   Obj value = context.eval(parse(arguments[1]), env);
-  if (!value.is_procedure()) {
+  Procedure *macro = value.try_as_procedure();
+  if (!macro) {
     throw SchemeError("define-macro: expected procedure");
   }
-  context.define_macro(target.as_symbol(), value.as_procedure());
+  context.define_macro(*name, macro);
 }
 
 static Obj eval_top_level_form(Obj datum, Env &env, Ctx &context,
                                Parser &parser) {
   datum = parser.expand_head(datum);
-  if (datum.is_cons() && is_keyword(datum.car(), "begin")) {
-    std::vector<Obj> forms =
-        form_arguments(datum.cdr(), "begin", Arity::at_least(0));
-    Obj result = Void{};
-    for (Obj form : forms) {
-      result = eval_top_level_form(form, env, context, parser);
+  if (Cons *form = datum.try_as_cons()) {
+    if (is_keyword(form->car, "begin")) {
+      std::vector<Obj> forms =
+          form_arguments(form->cdr, "begin", Arity::at_least(0));
+      Obj result = Void{};
+      for (Obj child : forms) {
+        result = eval_top_level_form(child, env, context, parser);
+      }
+      return result;
     }
-    return result;
-  }
 
-  if (datum.is_cons() && is_keyword(datum.car(), "define-macro")) {
-    parser.define_macro(datum.cdr(), env);
-    return Void{};
+    if (is_keyword(form->car, "define-macro")) {
+      parser.define_macro(form->cdr, env);
+      return Void{};
+    }
   }
   return context.eval(parser.parse(datum), env);
 }

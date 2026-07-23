@@ -45,6 +45,7 @@ public:
 
   std::partial_ordering compare(Number o) const;
   bool eqv(Number o) const;
+  bool operator==(Number o) const;
 
   std::string to_string() const;
   HeapEntity *heap_entity() const;

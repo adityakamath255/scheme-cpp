@@ -6,14 +6,102 @@
 #include <format>
 #include <ranges>
 #include <string>
-#include <type_traits>
 #include <utility>
+
+namespace {
+
+template <typename T>
+constexpr std::string_view type_name_for();
+
+template <>
+constexpr std::string_view type_name_for<bool>() {
+  return "boolean";
+}
+template <>
+constexpr std::string_view type_name_for<char>() {
+  return "char";
+}
+template <>
+constexpr std::string_view type_name_for<Number>() {
+  return "number";
+}
+template <>
+constexpr std::string_view type_name_for<Symbol>() {
+  return "symbol";
+}
+template <>
+constexpr std::string_view type_name_for<String *>() {
+  return "string";
+}
+template <>
+constexpr std::string_view type_name_for<Cons *>() {
+  return "pair";
+}
+template <>
+constexpr std::string_view type_name_for<Vector *>() {
+  return "vector";
+}
+template <>
+constexpr std::string_view type_name_for<Procedure *>() {
+  return "procedure";
+}
+template <>
+constexpr std::string_view type_name_for<Builtin *>() {
+  return "procedure";
+}
+template <>
+constexpr std::string_view type_name_for<Promise *>() {
+  return "promise";
+}
+template <>
+constexpr std::string_view type_name_for<Error *>() {
+  return "error";
+}
+template <>
+constexpr std::string_view type_name_for<Null>() {
+  return "null";
+}
+template <>
+constexpr std::string_view type_name_for<Void>() {
+  return "void";
+}
+
+template <typename T>
+std::optional<T> try_value(const Value &data) {
+  if (const auto *value = std::get_if<T>(&data)) {
+    return *value;
+  }
+  return std::nullopt;
+}
+
+template <typename T>
+T try_pointer(const Value &data) {
+  if (const auto *value = std::get_if<T>(&data)) {
+    return *value;
+  }
+  return nullptr;
+}
+
+template <typename T>
+T expect(const Value &data) {
+  if (const auto *value = std::get_if<T>(&data)) {
+    return *value;
+  }
+  throw SchemeError(std::format(
+      "expected {}, got {}", type_name_for<T>(), Obj(data).type_name()));
+}
+
+}
 
 Symbol::Symbol(const std::string &name) : ptr{&name} {}
 
 const std::string &Symbol::name() const { return *ptr; }
 
 bool Symbol::operator==(Symbol other) const { return ptr == other.ptr; }
+
+bool Null::operator==(Null) const { return true; }
+
+bool Void::operator==(Void) const { return true; }
 
 Obj::Obj(Value data) : data{data} {}
 Obj::Obj(bool data) : data{data} {}
@@ -30,29 +118,6 @@ Obj::Obj(Promise *data) : data{data} {}
 Obj::Obj(Error *data) : data{data} {}
 Obj::Obj(Null data) : data{data} {}
 Obj::Obj(Void data) : data{data} {}
-
-template <Type t, typename Alt>
-static constexpr bool alt_is =
-    std::is_same_v<std::variant_alternative_t<static_cast<size_t>(t), Value>,
-                   Alt>;
-
-static_assert(std::variant_size_v<Value> ==
-              static_cast<size_t>(Type::Void) + 1);
-static_assert(alt_is<Type::Bool, bool>);
-static_assert(alt_is<Type::Char, char>);
-static_assert(alt_is<Type::Number, Number>);
-static_assert(alt_is<Type::Symbol, Symbol>);
-static_assert(alt_is<Type::String, String *>);
-static_assert(alt_is<Type::Cons, Cons *>);
-static_assert(alt_is<Type::Vector, Vector *>);
-static_assert(alt_is<Type::Procedure, Procedure *>);
-static_assert(alt_is<Type::Builtin, Builtin *>);
-static_assert(alt_is<Type::Promise, Promise *>);
-static_assert(alt_is<Type::Error, Error *>);
-static_assert(alt_is<Type::Null, Null>);
-static_assert(alt_is<Type::Void, Void>);
-
-Type Obj::type() const { return static_cast<Type>(data.index()); }
 
 bool Obj::is_bool() const { return std::holds_alternative<bool>(data); }
 
@@ -82,54 +147,90 @@ bool Obj::is_null() const { return std::holds_alternative<Null>(data); }
 
 bool Obj::is_void() const { return std::holds_alternative<Void>(data); }
 
-template <typename T>
-static T expect(const Value &data, std::string_view wanted) {
-  if (auto p = std::get_if<T>(&data)) {
-    return *p;
-  }
-  throw SchemeError(
-      std::format("expected {}, got {}", wanted, Obj(data).type_name()));
+std::optional<bool> Obj::try_as_bool() const {
+  return try_value<bool>(data);
 }
 
-bool Obj::as_bool() const { return expect<bool>(data, "boolean"); }
+std::optional<char> Obj::try_as_char() const {
+  return try_value<char>(data);
+}
 
-char Obj::as_char() const { return expect<char>(data, "char"); }
+std::optional<Number> Obj::try_as_number() const {
+  return try_value<Number>(data);
+}
 
-Number Obj::as_number() const { return expect<Number>(data, "number"); }
+std::optional<Symbol> Obj::try_as_symbol() const {
+  return try_value<Symbol>(data);
+}
 
-Symbol Obj::as_symbol() const { return expect<Symbol>(data, "symbol"); }
+String *Obj::try_as_string() const {
+  return try_pointer<String *>(data);
+}
 
-String *Obj::as_string() const { return expect<String *>(data, "string"); }
+Cons *Obj::try_as_cons() const {
+  return try_pointer<Cons *>(data);
+}
 
-Cons *Obj::as_cons() const { return expect<Cons *>(data, "pair"); }
+Vector *Obj::try_as_vector() const {
+  return try_pointer<Vector *>(data);
+}
 
-Vector *Obj::as_vector() const { return expect<Vector *>(data, "vector"); }
+Procedure *Obj::try_as_procedure() const {
+  return try_pointer<Procedure *>(data);
+}
+
+Builtin *Obj::try_as_builtin() const {
+  return try_pointer<Builtin *>(data);
+}
+
+Promise *Obj::try_as_promise() const {
+  return try_pointer<Promise *>(data);
+}
+
+Error *Obj::try_as_error() const {
+  return try_pointer<Error *>(data);
+}
+
+bool Obj::as_bool() const { return expect<bool>(data); }
+
+char Obj::as_char() const { return expect<char>(data); }
+
+Number Obj::as_number() const { return expect<Number>(data); }
+
+Symbol Obj::as_symbol() const { return expect<Symbol>(data); }
+
+String *Obj::as_string() const { return expect<String *>(data); }
+
+Cons *Obj::as_cons() const { return expect<Cons *>(data); }
+
+Vector *Obj::as_vector() const { return expect<Vector *>(data); }
 
 Procedure *Obj::as_procedure() const {
-  return expect<Procedure *>(data, "procedure");
+  return expect<Procedure *>(data);
 }
 
 Builtin *Obj::as_builtin() const {
-  return expect<Builtin *>(data, "procedure");
+  return expect<Builtin *>(data);
 }
 
-Promise *Obj::as_promise() const { return expect<Promise *>(data, "promise"); }
+Promise *Obj::as_promise() const {
+  return expect<Promise *>(data);
+}
 
-Error *Obj::as_error() const { return expect<Error *>(data, "error"); }
+Error *Obj::as_error() const { return expect<Error *>(data); }
 
 HeapEntity *Obj::heap_entity() const {
-  return std::visit(overloaded{
-                        [](Number n) { return n.heap_entity(); },
-                        [](String *s) -> HeapEntity * { return s; },
-                        [](Cons *c) -> HeapEntity * { return c; },
-                        [](Vector *v) -> HeapEntity * { return v; },
-                        [](Procedure *p) -> HeapEntity * { return p; },
-                        [](Builtin *b) -> HeapEntity * { return b; },
-                        [](Promise *p) -> HeapEntity * { return p; },
-                        [](Error *e) -> HeapEntity * { return e; },
-                        [](auto) -> HeapEntity * { return nullptr; },
-                    },
-                    data);
+  return visit(overloaded{
+      [](Number number) { return number.heap_entity(); },
+      [](String *string) -> HeapEntity * { return string; },
+      [](Cons *cons) -> HeapEntity * { return cons; },
+      [](Vector *vector) -> HeapEntity * { return vector; },
+      [](Procedure *procedure) -> HeapEntity * { return procedure; },
+      [](Builtin *builtin) -> HeapEntity * { return builtin; },
+      [](Promise *promise) -> HeapEntity * { return promise; },
+      [](Error *error) -> HeapEntity * { return error; },
+      [](auto) -> HeapEntity * { return nullptr; },
+  });
 }
 
 bool Obj::is_true() const { return !is_bool() || as_bool() == true; }
@@ -140,50 +241,40 @@ bool Obj::same_type(Obj other) const {
   return data.index() == other.data.index();
 }
 
+bool Obj::eqv(Obj other) const { return data == other.data; }
+
 bool Obj::equals(Obj other) const {
+  if (eqv(other)) {
+    return true;
+  }
   if (!same_type(other)) {
     return false;
   }
 
-  switch (type()) {
-  case Type::Bool:
-    return as_bool() == other.as_bool();
-  case Type::Char:
-    return as_char() == other.as_char();
-  case Type::Number:
-    return as_number().eqv(other.as_number());
-  case Type::Symbol:
-    return as_symbol() == other.as_symbol();
-  case Type::Procedure:
-    return as_procedure() == other.as_procedure();
-  case Type::Builtin:
-    return as_builtin() == other.as_builtin();
-  case Type::Promise:
-    return as_promise() == other.as_promise();
-  case Type::Error:
-    return as_error() == other.as_error();
-
-  case Type::String:
-    return as_string()->data == other.as_string()->data;
-
-  case Type::Null:
-  case Type::Void:
-    return true;
-
-  case Type::Cons: {
-    List a{*this};
-    List b{other};
-    return std::ranges::equal(
-               a.elements, b.elements,
-               [](Obj x, Obj y) { return x.equals(y); }) &&
-           a.tail.equals(b.tail);
+  if (String *string = try_as_string()) {
+    return string->data == other.as_string()->data;
   }
 
-  case Type::Vector:
-    return std::ranges::equal(as_vector()->data, other.as_vector()->data,
+  if (Cons *cons = try_as_cons()) {
+    Obj left = cons;
+    Obj right = other;
+    while (Cons *left_cons = left.try_as_cons()) {
+      Cons *right_cons = right.try_as_cons();
+      if (!right_cons || !left_cons->car.equals(right_cons->car)) {
+        return false;
+      }
+      left = left_cons->cdr;
+      right = right_cons->cdr;
+    }
+    return left.equals(right);
+  }
+
+  if (Vector *vector = try_as_vector()) {
+    return std::ranges::equal(vector->data, other.as_vector()->data,
                               [](Obj x, Obj y) { return x.equals(y); });
   }
-  std::unreachable();
+
+  return false;
 }
 
 static std::string render(Obj obj, bool write);
@@ -200,127 +291,82 @@ std::string Obj::to_write() const { return render(*this, true); }
 std::string Obj::to_display() const { return render(*this, false); }
 
 static std::string render(Obj obj, bool write) {
-  switch (obj.type()) {
-  case Type::Bool:
-    return obj.as_bool() ? "#t" : "#f";
-
-  case Type::Number:
-    return obj.as_number().to_string();
-
-  case Type::Char: {
-    char c = obj.as_char();
-    if (!write) {
-      return std::string(1, c);
-    }
-    switch (c) {
-    case ' ':
-      return "#\\space";
-    case '\n':
-      return "#\\newline";
-    case '\t':
-      return "#\\tab";
-    case '\r':
-      return "#\\return";
-    default:
-      return std::string("#\\") + c;
-    }
-  }
-
-  case Type::Symbol:
-    return obj.as_symbol().name();
-
-  case Type::String:
-    if (!write) {
-      return obj.as_string()->data;
-    } else {
-      std::string res = "\"";
-      for (char c : obj.as_string()->data) {
-        switch (c) {
-        case '"':
-          res += "\\\"";
-          break;
-        case '\\':
-          res += "\\\\";
-          break;
-        case '\n':
-          res += "\\n";
-          break;
-        case '\t':
-          res += "\\t";
-          break;
-        case '\r':
-          res += "\\r";
-          break;
-        default:
-          res += c;
-          break;
+  return obj.visit(overloaded{
+      [](bool value) -> std::string { return value ? "#t" : "#f"; },
+      [write](char value) -> std::string {
+        if (!write) {
+          return std::string(1, value);
         }
-      }
-      res += '"';
-      return res;
-    }
-
-  case Type::Cons: {
-    List list{obj};
-    std::string dotted = list.proper()
-                             ? ""
-                             : " . " + render(list.tail, write);
-    return "(" + join_elems(list.elements, write) + dotted + ")";
-  }
-
-  case Type::Vector:
-    return "#(" + join_elems(obj.as_vector()->data, write) + ")";
-
-  case Type::Procedure:
-    return "#<procedure>";
-
-  case Type::Builtin:
-    return "#<procedure>";
-
-  case Type::Promise:
-    return "#<promise>";
-
-  case Type::Error:
-    return "#<error: " + obj.as_error()->describe() + ">";
-
-  case Type::Null:
-    return "()";
-
-  case Type::Void:
-    return "#<void>";
-  }
-  std::unreachable();
+        switch (value) {
+        case ' ':
+          return "#\\space";
+        case '\n':
+          return "#\\newline";
+        case '\t':
+          return "#\\tab";
+        case '\r':
+          return "#\\return";
+        default:
+          return std::string("#\\") + value;
+        }
+      },
+      [](Number value) { return value.to_string(); },
+      [](Symbol value) { return value.name(); },
+      [write](String *value) -> std::string {
+        if (!write) {
+          return value->data;
+        }
+        std::string result = "\"";
+        for (char character : value->data) {
+          switch (character) {
+          case '"':
+            result += "\\\"";
+            break;
+          case '\\':
+            result += "\\\\";
+            break;
+          case '\n':
+            result += "\\n";
+            break;
+          case '\t':
+            result += "\\t";
+            break;
+          case '\r':
+            result += "\\r";
+            break;
+          default:
+            result += character;
+            break;
+          }
+        }
+        result += '"';
+        return result;
+      },
+      [write](Cons *value) {
+        List list{value};
+        std::string dotted = list.proper()
+                                 ? ""
+                                 : " . " + render(list.tail, write);
+        return "(" + join_elems(list.elements, write) + dotted + ")";
+      },
+      [write](Vector *value) {
+        return "#(" + join_elems(value->data, write) + ")";
+      },
+      [](Procedure *) -> std::string { return "#<procedure>"; },
+      [](Builtin *) -> std::string { return "#<procedure>"; },
+      [](Promise *) -> std::string { return "#<promise>"; },
+      [](Error *value) {
+        return "#<error: " + value->describe() + ">";
+      },
+      [](Null) -> std::string { return "()"; },
+      [](Void) -> std::string { return "#<void>"; },
+  });
 }
 
 std::string Obj::type_name() const {
-  switch (type()) {
-  case Type::Bool:
-    return "boolean";
-  case Type::Number:
-    return "number";
-  case Type::Char:
-    return "char";
-  case Type::Symbol:
-    return "symbol";
-  case Type::String:
-    return "string";
-  case Type::Cons:
-    return "pair";
-  case Type::Vector:
-    return "vector";
-  case Type::Procedure:
-  case Type::Builtin:
-    return "procedure";
-  case Type::Promise:
-    return "promise";
-  case Type::Error:
-    return "error";
-  case Type::Null:
-    return "null";
-  case Type::Void:
-    return "void";
-  }
-  std::unreachable();
+  return std::string(visit([]<typename T>(const T &) {
+    return type_name_for<T>();
+  }));
 }
 
 Obj Obj::car() const { return as_cons()->car; }
@@ -328,9 +374,9 @@ Obj Obj::car() const { return as_cons()->car; }
 Obj Obj::cdr() const { return as_cons()->cdr; }
 
 List::List(Obj value) : elements{}, tail{value} {
-  while (tail.is_cons()) {
-    elements.push_back(tail.car());
-    tail = tail.cdr();
+  while (Cons *cons = tail.try_as_cons()) {
+    elements.push_back(cons->car);
+    tail = cons->cdr;
   }
 }
 
@@ -440,8 +486,10 @@ void Error::trace(std::vector<const HeapEntity *> &worklist) const {
 }
 
 static std::string render_condition(Obj payload) {
-  return payload.is_error() ? payload.as_error()->describe()
-                            : "uncaught exception: " + payload.to_write();
+  if (Error *error = payload.try_as_error()) {
+    return error->describe();
+  }
+  return "uncaught exception: " + payload.to_write();
 }
 
 SchemeError::SchemeError(const std::string &message)

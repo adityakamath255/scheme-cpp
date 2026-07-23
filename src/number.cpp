@@ -415,6 +415,8 @@ bool Number::eqv(Number o) const {
     && compare(o) == std::partial_ordering::equivalent;
 }
 
+bool Number::operator==(Number o) const { return eqv(o); }
+
 Number Number::parse(std::string_view lexeme, Ctx &context) {
   if (lexeme == "+inf.0") {
     return inexact(std::numeric_limits<double>::infinity());

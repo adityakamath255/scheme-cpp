@@ -52,15 +52,13 @@ splice_apply(const std::vector<Obj> &arguments) {
 EvalResult apply_procedure(Obj procedure, std::vector<Obj> arguments,
                            Ctx &context) {
   while (true) {
-    if (procedure.is_procedure()) {
-      Procedure *callable = procedure.as_procedure();
+    if (Procedure *callable = procedure.try_as_procedure()) {
       Env &env = *context.alloc<Env>(&callable->env.get());
       callable->code->formals.bind(env, arguments, context);
       return TailCall{callable->code->body, env};
     }
 
-    if (procedure.is_builtin()) {
-      Builtin *builtin = procedure.as_builtin();
+    if (Builtin *builtin = procedure.try_as_builtin()) {
       if (auto *function = std::get_if<Builtin::Fn>(
               &builtin->implementation)) {
         return (*function)(arguments, context);

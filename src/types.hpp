@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -24,8 +25,12 @@ struct Builtin;
 struct Procedure;
 class Promise;
 struct Error;
-struct Null {};
-struct Void {};
+struct Null {
+  bool operator==(Null) const;
+};
+struct Void {
+  bool operator==(Void) const;
+};
 
 class Obj;
 class Env;
@@ -37,22 +42,6 @@ struct HeapEntity;
 using Value =
     std::variant<bool, char, Number, Symbol, String *, Cons *, Vector *,
                  Procedure *, Builtin *, Promise *, Error *, Null, Void>;
-
-enum class Type : size_t {
-  Bool = 0,
-  Char,
-  Number,
-  Symbol,
-  String,
-  Cons,
-  Vector,
-  Procedure,
-  Builtin,
-  Promise,
-  Error,
-  Null,
-  Void
-};
 
 class Symbol {
   const std::string *ptr;
@@ -93,8 +82,6 @@ public:
   Obj(Null);
   Obj(Void);
 
-  Type type() const;
-
   bool is_bool() const;
   bool is_number() const;
   bool is_char() const;
@@ -108,6 +95,18 @@ public:
   bool is_error() const;
   bool is_null() const;
   bool is_void() const;
+
+  std::optional<bool> try_as_bool() const;
+  std::optional<char> try_as_char() const;
+  std::optional<Number> try_as_number() const;
+  std::optional<Symbol> try_as_symbol() const;
+  String *try_as_string() const;
+  Cons *try_as_cons() const;
+  Vector *try_as_vector() const;
+  Procedure *try_as_procedure() const;
+  Builtin *try_as_builtin() const;
+  Promise *try_as_promise() const;
+  Error *try_as_error() const;
 
   bool as_bool() const;
   char as_char() const;
@@ -127,7 +126,13 @@ public:
   bool is_false() const;
 
   bool same_type(Obj) const;
+  bool eqv(Obj) const;
   bool equals(Obj) const;
+
+  template <typename F>
+  decltype(auto) visit(F &&visitor) const {
+    return std::visit(std::forward<F>(visitor), data);
+  }
 
   std::string to_write() const;
   std::string to_display() const;

@@ -40,24 +40,25 @@ std::optional<std::string> Arity::mismatch(size_t count) const {
 }
 
 Formals Formals::parse(Obj formals) {
-  if (formals.is_symbol()) {
-    return {{}, formals.as_symbol()};
+  if (auto rest = formals.try_as_symbol()) {
+    return {{}, *rest};
   }
 
   List params{formals};
   std::vector<Symbol> fixed;
   for (Obj param : params.elements) {
-    if (!param.is_symbol()) {
+    auto symbol = param.try_as_symbol();
+    if (!symbol) {
       throw SchemeError("parameter must be a symbol");
     }
-    fixed.push_back(param.as_symbol());
+    fixed.push_back(*symbol);
   }
 
   if (params.proper()) {
     return {std::move(fixed), std::nullopt};
   }
-  if (params.tail.is_symbol()) {
-    return {std::move(fixed), params.tail.as_symbol()};
+  if (auto rest = params.tail.try_as_symbol()) {
+    return {std::move(fixed), *rest};
   }
   throw SchemeError("invalid parameter list");
 }

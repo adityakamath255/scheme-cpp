@@ -414,7 +414,8 @@ static void install_objects(Installer install) {
   install_predicate<&Obj::is_number>(install, "number?");
   install("integer?", [](Args raw, Ctx &) {
     Obj value = match(raw, arg::any);
-    return value.is_number() && value.as_number().is_integer();
+    auto number = value.try_as_number();
+    return number && number->is_integer();
   });
   install_predicate<&Obj::is_cons>(install, "pair?");
   install_predicate<&Obj::is_symbol>(install, "symbol?");
@@ -439,37 +440,7 @@ static void install_objects(Installer install) {
 
   auto eq = [](Args raw, Ctx &) {
     auto [a, b] = match(raw, arg::any, arg::any);
-    if (!a.same_type(b)) {
-      return false;
-    }
-    switch (a.type()) {
-    case Type::Bool:
-      return a.as_bool() == b.as_bool();
-    case Type::Number:
-      return a.as_number().eqv(b.as_number());
-    case Type::Char:
-      return a.as_char() == b.as_char();
-    case Type::Symbol:
-      return a.as_symbol() == b.as_symbol();
-    case Type::String:
-      return a.as_string() == b.as_string();
-    case Type::Cons:
-      return a.as_cons() == b.as_cons();
-    case Type::Vector:
-      return a.as_vector() == b.as_vector();
-    case Type::Procedure:
-      return a.as_procedure() == b.as_procedure();
-    case Type::Builtin:
-      return a.as_builtin() == b.as_builtin();
-    case Type::Promise:
-      return a.as_promise() == b.as_promise();
-    case Type::Error:
-      return a.as_error() == b.as_error();
-    case Type::Null:
-    case Type::Void:
-      return true;
-    }
-    std::unreachable();
+    return a.eqv(b);
   };
   install("eq?", eq);
   install("eqv?", eq);
@@ -678,7 +649,10 @@ static void install_vectors(Installer install) {
 static void install_other(Installer install) {
   install("force", [](Args raw, Ctx &context) {
     Obj value = match(raw, arg::any);
-    return value.is_promise() ? value.as_promise()->force(context) : value;
+    if (Promise *promise = value.try_as_promise()) {
+      return promise->force(context);
+    }
+    return value;
   });
   install("error", [](Args raw, Ctx &context) -> Obj {
     auto [message, irritants] = match(raw, arg::any, rest(arg::any));
