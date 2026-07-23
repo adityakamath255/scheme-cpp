@@ -141,6 +141,7 @@ class Reader {
   }
 
   Obj read_datum() {
+    Ctx::DepthGuard guard{context};
     Token token = take();
     switch (token.type) {
     case Token::Type::LPAREN:

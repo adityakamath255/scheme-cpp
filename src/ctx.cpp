@@ -9,7 +9,9 @@
 #include <stdexcept>
 #include <utility>
 
-static constexpr size_t max_eval_depth = 1000;
+// each guarded level spans several C stack frames; 1000 is calibrated for
+// default 8MB stacks (see web/CMakeLists.txt)
+static constexpr size_t max_depth = 1000;
 
 namespace {
 
@@ -55,14 +57,14 @@ Ctx::Ctx()
   execute(preamble);
 }
 
-Ctx::Frame::Frame(Ctx &context) : context{context} {
-  if (context.depth >= max_eval_depth) {
+Ctx::DepthGuard::DepthGuard(Ctx &context) : context{context} {
+  if (context.depth >= max_depth) {
     throw SchemeError("recursion too deep");
   }
   context.depth += 1;
 }
 
-Ctx::Frame::~Frame() { context.depth -= 1; }
+Ctx::DepthGuard::~DepthGuard() { context.depth -= 1; }
 
 void Ctx::own(std::unique_ptr<HeapEntity> object) {
   heap.push_back(std::move(object));
@@ -127,7 +129,7 @@ void Ctx::result(std::string text) const {
 }
 
 Obj Ctx::eval(const Expr *expression, Env &environment) {
-  Frame frame{*this};
+  DepthGuard guard{*this};
   EvalResult value = expression->eval(environment, *this);
   while (auto *tail_call = std::get_if<TailCall>(&value)) {
     value = tail_call->expression->eval(

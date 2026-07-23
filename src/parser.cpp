@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <utility>
 
-static constexpr size_t max_parse_depth = 1000;
+static constexpr size_t max_macro_expansions = 1000;
 
 namespace {
 
@@ -39,21 +39,6 @@ static std::vector<Obj> form_arguments(Obj rest, std::string_view name,
 
 class Parser {
   Ctx &context;
-  size_t depth = 0;
-
-  class Frame {
-    Parser &parser;
-
-  public:
-    explicit Frame(Parser &parser) : parser{parser} {
-      if (parser.depth >= max_parse_depth) {
-        throw SchemeError("syntax nesting too deep");
-      }
-      parser.depth += 1;
-    }
-
-    ~Frame() { parser.depth -= 1; }
-  };
 
   using FormParser = const Expr *(Parser::*)(Obj);
 
@@ -135,7 +120,7 @@ Obj Parser::expand_macro(Obj expression, Procedure *macro) {
 }
 
 Obj Parser::expand_head(Obj expression) {
-  for (size_t expansions = 0; expansions < max_parse_depth;
+  for (size_t expansions = 0; expansions < max_macro_expansions;
        expansions += 1) {
     if (!expression.is_cons() || !expression.car().is_symbol()) {
       return expression;
@@ -154,7 +139,7 @@ Obj Parser::expand_head(Obj expression) {
 }
 
 const Expr *Parser::parse(Obj datum) {
-  Frame frame{*this};
+  Ctx::DepthGuard guard{context};
   if (datum.is_symbol()) {
     return context.alloc<ReferenceExpr>(datum.as_symbol());
   }

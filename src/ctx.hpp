@@ -26,14 +26,6 @@ class Ctx {
   size_t depth;
   scheme::Emit emit;
 
-  class Frame {
-    Ctx &context;
-
-  public:
-    explicit Frame(Ctx &);
-    ~Frame();
-  };
-
   void own(std::unique_ptr<HeapEntity>);
   bool outermost() const;
   bool should_collect() const;
@@ -42,6 +34,17 @@ class Ctx {
   void result(std::string) const;
 
 public:
+  class DepthGuard {
+    Ctx &context;
+
+  public:
+    explicit DepthGuard(Ctx &);
+    ~DepthGuard();
+
+    DepthGuard(const DepthGuard &) = delete;
+    DepthGuard &operator=(const DepthGuard &) = delete;
+  };
+
   Ctx();
 
   Symbol intern(std::string_view);
