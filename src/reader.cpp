@@ -35,7 +35,7 @@ std::string process_escapes(std::string_view raw) {
 
 class Reader {
   Lexer lexer;
-  Ctx &context;
+  Ctx &ctx;
   std::optional<Token> current;
 
   const Token *peek() {
@@ -78,7 +78,7 @@ class Reader {
 
   Obj read_quoted(std::string_view name) {
     return list_from(
-        std::array<Obj, 2>{context.intern(name), read_datum()}, context);
+        std::array<Obj, 2>{ctx.intern(name), read_datum()}, ctx);
   }
 
   Obj read_list(char closing) {
@@ -92,11 +92,11 @@ class Reader {
         }
         Obj tail = read_datum();
         require_closing(closing);
-        return list_from(elements, context, tail);
+        return list_from(elements, ctx, tail);
       }
       elements.push_back(read_datum());
     }
-    return list_from(elements, context);
+    return list_from(elements, ctx);
   }
 
   Obj read_vector(char closing) {
@@ -104,7 +104,7 @@ class Reader {
     while (!match_closing(closing)) {
       elements.push_back(read_datum());
     }
-    return context.alloc<Vector>(std::move(elements));
+    return ctx.alloc<Vector>(std::move(elements));
   }
 
   Obj read_char(std::string_view lexeme) {
@@ -119,7 +119,7 @@ class Reader {
   }
 
   Obj read_datum() {
-    Ctx::DepthGuard guard{context};
+    Ctx::DepthGuard guard{ctx};
     Token token = take();
     switch (token.type) {
     case Token::Type::LPAREN:
@@ -139,11 +139,11 @@ class Reader {
     case Token::Type::FALSE:
       return false;
     case Token::Type::NUMBER:
-      return Number::parse(token.lexeme, context);
+      return Number::parse(token.lexeme, ctx);
     case Token::Type::STRING:
-      return context.alloc<String>(process_escapes(token.lexeme));
+      return ctx.alloc<String>(process_escapes(token.lexeme));
     case Token::Type::SYMBOL:
-      return context.intern(token.lexeme);
+      return ctx.intern(token.lexeme);
     case Token::Type::VEC_BEGIN:
       return read_vector(token.delimiter);
     case Token::Type::CHAR:
@@ -155,8 +155,8 @@ class Reader {
   }
 
 public:
-  Reader(std::string_view source, Ctx &context)
-      : lexer{source}, context{context}, current{} {}
+  Reader(std::string_view source, Ctx &ctx)
+      : lexer{source}, ctx{ctx}, current{} {}
 
   std::optional<Obj> read() {
     if (!peek()) {
@@ -170,9 +170,9 @@ public:
 
 }
 
-ReadOutcome read_one(std::string_view source, Ctx &context) {
+ReadOutcome read_one(std::string_view source, Ctx &ctx) {
   try {
-    Reader reader{source, context};
+    Reader reader{source, ctx};
     if (auto value = reader.read()) {
       return ReadDatum{*value, reader.rest()};
     }

@@ -47,9 +47,9 @@ constexpr int64_t fixnum_min = std::numeric_limits<int64_t>::min() + 1;
 constexpr int64_t fixnum_max = std::numeric_limits<int64_t>::max();
 constexpr double int64_magnitude = 0x1p63;
 
-Rep of_i64(int64_t v, Ctx &context) {
+Rep of_i64(int64_t v, Ctx &ctx) {
   if (v < fixnum_min) {
-    BigInt *b = context.alloc<BigInt>();
+    BigInt *b = ctx.alloc<BigInt>();
     mp_set_i64(&b->val, v);
     return b;
   }
@@ -58,9 +58,9 @@ Rep of_i64(int64_t v, Ctx &context) {
   }
 }
 
-Rep from_bigint(BigInt *b, Ctx &context) {
+Rep from_bigint(BigInt *b, Ctx &ctx) {
   if (mp_count_bits(&b->val) < 64) {
-    return of_i64(mp_get_i64(&b->val), context);
+    return of_i64(mp_get_i64(&b->val), ctx);
   }
   else {
     return b;
@@ -173,15 +173,15 @@ mp_err apply(UnaryOperation operation, const mp_int *value, mp_int *result) {
   std::unreachable();
 }
 
-Rep exact_binop(const Rep &a, const Rep &b, Ctx &context,
+Rep exact_binop(const Rep &a, const Rep &b, Ctx &ctx,
                 BinaryOperation operation) {
-  BigInt *r = context.alloc<BigInt>();
+  BigInt *r = ctx.alloc<BigInt>();
   Mp sa, sb;
   check(apply(operation, as_mp(a, sa), as_mp(b, sb), &r->val));
-  return from_bigint(r, context);
+  return from_bigint(r, ctx);
 }
 
-Rep arith(const Rep &a, const Rep &b, Ctx &context,
+Rep arith(const Rep &a, const Rep &b, Ctx &ctx,
           BinaryOperation operation) {
   if (rep_is_exact(a) && rep_is_exact(b)) {
     auto ai = std::get_if<int64_t>(&a);
@@ -190,25 +190,25 @@ Rep arith(const Rep &a, const Rep &b, Ctx &context,
       __int128 w = apply(operation, static_cast<__int128>(*ai),
                          static_cast<__int128>(*bi));
       if (w >= fixnum_min && w <= fixnum_max) {
-        return of_i64(static_cast<int64_t>(w), context);
+        return of_i64(static_cast<int64_t>(w), ctx);
       }
     }
-    return exact_binop(a, b, context, operation);
+    return exact_binop(a, b, ctx, operation);
   }
   else {
     return apply(operation, rep_to_double(a), rep_to_double(b));
   }
 }
 
-Rep unary(const Rep &a, Ctx &context, UnaryOperation operation) {
+Rep unary(const Rep &a, Ctx &ctx, UnaryOperation operation) {
   return std::visit(overloaded {
     [&](int64_t v) -> Rep {
-      return of_i64(apply(operation, v), context);
+      return of_i64(apply(operation, v), ctx);
     },
     [&](BigInt *b) -> Rep {
-      BigInt *r = context.alloc<BigInt>();
+      BigInt *r = ctx.alloc<BigInt>();
       check(apply(operation, &b->val, &r->val));
-      return from_bigint(r, context);
+      return from_bigint(r, ctx);
     },
     [&](double d) -> Rep { return apply(operation, d); },
   }, a);
@@ -216,25 +216,25 @@ Rep unary(const Rep &a, Ctx &context, UnaryOperation operation) {
 
 struct QuotRem { Rep quot; Rep rem; };
 
-QuotRem divmod(const Rep &a, const Rep &b, Ctx &context) {
+QuotRem divmod(const Rep &a, const Rep &b, Ctx &ctx) {
   if (auto ai = std::get_if<int64_t>(&a)) {
     if (auto bi = std::get_if<int64_t>(&b)) {
-      return { of_i64(*ai / *bi, context), of_i64(*ai % *bi, context) };
+      return { of_i64(*ai / *bi, ctx), of_i64(*ai % *bi, ctx) };
     }
   }
-  BigInt *q = context.alloc<BigInt>();
-  BigInt *r = context.alloc<BigInt>();
+  BigInt *q = ctx.alloc<BigInt>();
+  BigInt *r = ctx.alloc<BigInt>();
   Mp sa, sb;
   check(mp_div(as_mp(a, sa), as_mp(b, sb), &q->val, &r->val));
-  return { from_bigint(q, context), from_bigint(r, context) };
+  return { from_bigint(q, ctx), from_bigint(r, ctx) };
 }
 
 }  // namespace
 
 Number::Number(Rep r): rep {std::move(r)} {}
 
-Number Number::exact(int64_t v, Ctx &context) {
-  return Number(of_i64(v, context));
+Number Number::exact(int64_t v, Ctx &ctx) {
+  return Number(of_i64(v, ctx));
 }
 
 Number Number::inexact(double v) { 
@@ -306,24 +306,24 @@ bool Number::is_even() const {
   }, rep);
 }
 
-Number Number::add(Number o, Ctx &context) const {
-  return Number(arith(rep, o.rep, context, BinaryOperation::Add));
+Number Number::add(Number o, Ctx &ctx) const {
+  return Number(arith(rep, o.rep, ctx, BinaryOperation::Add));
 }
 
-Number Number::sub(Number o, Ctx &context) const {
-  return Number(arith(rep, o.rep, context, BinaryOperation::Subtract));
+Number Number::sub(Number o, Ctx &ctx) const {
+  return Number(arith(rep, o.rep, ctx, BinaryOperation::Subtract));
 }
 
-Number Number::mul(Number o, Ctx &context) const {
-  return Number(arith(rep, o.rep, context, BinaryOperation::Multiply));
+Number Number::mul(Number o, Ctx &ctx) const {
+  return Number(arith(rep, o.rep, ctx, BinaryOperation::Multiply));
 }
 
-Number Number::div(Number o, Ctx &context) const {
+Number Number::div(Number o, Ctx &ctx) const {
   if (is_exact() && o.is_exact()) {
     if (o.is_zero()) {
       throw UnattributedError("division by zero");
     }
-    auto [q, r] = divmod(rep, o.rep, context);
+    auto [q, r] = divmod(rep, o.rep, ctx);
     if (rep_is_zero(r)) {
       return Number(q);
     }
@@ -331,79 +331,79 @@ Number Number::div(Number o, Ctx &context) const {
   return inexact(to_double() / o.to_double());
 }
 
-Number Number::neg(Ctx &context) const {
-  return Number(unary(rep, context, UnaryOperation::Negate));
+Number Number::neg(Ctx &ctx) const {
+  return Number(unary(rep, ctx, UnaryOperation::Negate));
 }
 
-Number Number::abs(Ctx &context) const {
-  return Number(unary(rep, context, UnaryOperation::Absolute));
+Number Number::abs(Ctx &ctx) const {
+  return Number(unary(rep, ctx, UnaryOperation::Absolute));
 }
 
-Number Number::sqrt(Ctx &context) const {
+Number Number::sqrt(Ctx &ctx) const {
   if (is_exact() && !rep_is_negative(rep)) {
     Mp scratch;
     const mp_int *m = as_mp(rep, scratch);
     bool square = false;
     check(mp_is_square(m, &square));
     if (square) {
-      BigInt *r = context.alloc<BigInt>();
+      BigInt *r = ctx.alloc<BigInt>();
       check(mp_sqrt(m, &r->val));
-      return Number(from_bigint(r, context));
+      return Number(from_bigint(r, ctx));
     }
   }
   return inexact(std::sqrt(to_double()));
 }
 
-Number Number::quotient(Number o, Ctx &context) const {
+Number Number::quotient(Number o, Ctx &ctx) const {
   if (o.is_zero()) {
     throw UnattributedError("division by zero");
   }
 
   if (is_exact() && o.is_exact()) {
-    return Number(divmod(rep, o.rep, context).quot);
+    return Number(divmod(rep, o.rep, ctx).quot);
   }
   else {
     return inexact(std::trunc(to_double() / o.to_double()));
   }
 }
-Number Number::remainder(Number o, Ctx &context) const {
+Number Number::remainder(Number o, Ctx &ctx) const {
   if (o.is_zero()) {
     throw UnattributedError("division by zero");
   }
 
   if (is_exact() && o.is_exact()) {
-    return Number(divmod(rep, o.rep, context).rem);
+    return Number(divmod(rep, o.rep, ctx).rem);
   }
   else {
     return inexact(std::fmod(to_double(), o.to_double()));
   }
 }
 
-Number Number::modulo(Number o, Ctx &context) const {
+Number Number::modulo(Number o, Ctx &ctx) const {
   if (o.is_zero()) {
     throw UnattributedError("division by zero");
   }
 
-  Number r = remainder(o, context);
+  Number r = remainder(o, ctx);
   if (
     !r.is_zero() 
     && rep_is_negative(r.rep) != rep_is_negative(o.rep)
   ) {
-    return r.add(o, context);
+    return r.add(o, ctx);
   }
   else {
     return r;
   }
 }
 
-Number Number::expt(Number power, Ctx &context) const {
+Number Number::expt(Number power, Ctx &ctx) const {
   if (is_exact()) {
     if (auto e = std::get_if<int64_t>(&power.rep)) {
       if (*e >= 0 && *e <= std::numeric_limits<int>::max()) {
-        BigInt *r = context.alloc<BigInt>();
+        BigInt *r = ctx.alloc<BigInt>();
         Mp sb;
         check(mp_expt_n(as_mp(rep, sb), static_cast<int>(*e), &r->val));
-        return Number(from_bigint(r, context));
+        return Number(from_bigint(r, ctx));
       }
     }
   }
@@ -414,7 +414,7 @@ Number Number::to_inexact() const {
   return is_exact() ? inexact(to_double()) : *this;
 }
 
-Number Number::to_exact(Ctx &context) const {
+Number Number::to_exact(Ctx &ctx) const {
   if (is_exact()) {
     return *this;
   }
@@ -426,7 +426,7 @@ Number Number::to_exact(Ctx &context) const {
     if (d < -int64_magnitude || d >= int64_magnitude) {
       throw UnattributedError("magnitude too large");
     }
-    return Number(of_i64(static_cast<int64_t>(d), context));
+    return Number(of_i64(static_cast<int64_t>(d), ctx));
   }
 }
 
@@ -476,7 +476,7 @@ bool Number::eqv(Number o) const {
 
 bool Number::operator==(Number o) const { return eqv(o); }
 
-Number Number::parse(std::string_view lexeme, Ctx &context) {
+Number Number::parse(std::string_view lexeme, Ctx &ctx) {
   if (lexeme == "+inf.0") {
     return inexact(std::numeric_limits<double>::infinity());
   }
@@ -506,13 +506,13 @@ Number Number::parse(std::string_view lexeme, Ctx &context) {
     auto [p, ec] = std::from_chars(begin, end, v);
 
     if (ec == std::errc{} && p == end) {
-      return Number(of_i64(v, context));
+      return Number(of_i64(v, ctx));
     }
     else if (ec == std::errc::result_out_of_range) {
       std::string s(lexeme);
-      BigInt *b = context.alloc<BigInt>();
+      BigInt *b = ctx.alloc<BigInt>();
       check(mp_read_radix(&b->val, s.c_str(), 10));
-      return Number(from_bigint(b, context));
+      return Number(from_bigint(b, ctx));
     }
     else {
       throw SchemeError("invalid number");

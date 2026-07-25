@@ -23,9 +23,9 @@ void trace_expressions(std::span<const Expr *const> expressions,
 EvalResult apply_procedure(Obj, std::vector<Obj>, Ctx &);
 
 EvalResult eval_sequence(std::span<const Expr *const> expressions,
-                         Env &env, Ctx &context) {
+                         Env &env, Ctx &ctx) {
   for (const Expr *expression : expressions.first(expressions.size() - 1)) {
-    context.eval(expression, env);
+    ctx.eval(expression, env);
   }
   return TailCall{expressions.back(), env};
 }
@@ -48,18 +48,18 @@ splice_apply(const std::vector<Obj> &arguments) {
 }
 
 EvalResult apply_procedure(Obj procedure, std::vector<Obj> arguments,
-                           Ctx &context) {
+                           Ctx &ctx) {
   while (true) {
     if (Procedure *callable = procedure.try_as_procedure()) {
-      Env &env = *context.alloc<Env>(&callable->env.get());
-      callable->code->formals.bind(env, arguments, context);
+      Env &env = *ctx.alloc<Env>(&callable->env.get());
+      callable->code->formals.bind(env, arguments, ctx);
       return TailCall{callable->code->body, env};
     }
 
     if (Builtin *builtin = procedure.try_as_builtin()) {
       if (auto *function = std::get_if<Builtin::Fn>(
               &builtin->implementation)) {
-        return (*function)(arguments, context);
+        return (*function)(arguments, ctx);
       }
       auto [next_procedure, next_arguments] = splice_apply(arguments);
       procedure = next_procedure;
@@ -96,8 +96,8 @@ IfExpr::IfExpr(const Expr *predicate, const Expr *consequent,
     : predicate{predicate}, consequent{consequent},
       alternative{alternative} {}
 
-EvalResult IfExpr::eval(Env &env, Ctx &context) const {
-  const Expr *branch = context.eval(predicate, env).is_true()
+EvalResult IfExpr::eval(Env &env, Ctx &ctx) const {
+  const Expr *branch = ctx.eval(predicate, env).is_true()
                            ? consequent
                            : alternative;
   return TailCall{branch, env};
@@ -112,8 +112,8 @@ void IfExpr::trace(std::vector<const HeapEntity *> &worklist) const {
 BeginExpr::BeginExpr(std::vector<const Expr *> expressions)
     : expressions{std::move(expressions)} {}
 
-EvalResult BeginExpr::eval(Env &env, Ctx &context) const {
-  return eval_sequence(expressions, env, context);
+EvalResult BeginExpr::eval(Env &env, Ctx &ctx) const {
+  return eval_sequence(expressions, env, ctx);
 }
 
 void BeginExpr::trace(std::vector<const HeapEntity *> &worklist) const {
@@ -123,8 +123,8 @@ void BeginExpr::trace(std::vector<const HeapEntity *> &worklist) const {
 LambdaExpr::LambdaExpr(Formals formals, const Expr *body)
     : formals{std::move(formals)}, body{body} {}
 
-EvalResult LambdaExpr::eval(Env &env, Ctx &context) const {
-  return Obj(context.alloc<Procedure>(this, env));
+EvalResult LambdaExpr::eval(Env &env, Ctx &ctx) const {
+  return Obj(ctx.alloc<Procedure>(this, env));
 }
 
 void LambdaExpr::trace(std::vector<const HeapEntity *> &worklist) const {
@@ -134,8 +134,8 @@ void LambdaExpr::trace(std::vector<const HeapEntity *> &worklist) const {
 DefineExpr::DefineExpr(Symbol name, const Expr *initializer)
     : name{name}, initializer{initializer} {}
 
-EvalResult DefineExpr::eval(Env &env, Ctx &context) const {
-  env.define(name, context.eval(initializer, env));
+EvalResult DefineExpr::eval(Env &env, Ctx &ctx) const {
+  env.define(name, ctx.eval(initializer, env));
   return Obj(Void{});
 }
 
@@ -146,8 +146,8 @@ void DefineExpr::trace(std::vector<const HeapEntity *> &worklist) const {
 SetExpr::SetExpr(Symbol name, const Expr *value)
     : name{name}, value{value} {}
 
-EvalResult SetExpr::eval(Env &env, Ctx &context) const {
-  if (!env.set(name, context.eval(value, env))) {
+EvalResult SetExpr::eval(Env &env, Ctx &ctx) const {
+  if (!env.set(name, ctx.eval(value, env))) {
     throw SchemeError("set!: undefined variable " + name.name());
   }
   return Obj(Void{});
@@ -161,14 +161,14 @@ CallExpr::CallExpr(const Expr *procedure,
                    std::vector<const Expr *> arguments)
     : procedure{procedure}, arguments{std::move(arguments)} {}
 
-EvalResult CallExpr::eval(Env &env, Ctx &context) const {
-  Obj callable = context.eval(procedure, env);
+EvalResult CallExpr::eval(Env &env, Ctx &ctx) const {
+  Obj callable = ctx.eval(procedure, env);
   std::vector<Obj> values;
   values.reserve(arguments.size());
   for (const Expr *argument : arguments) {
-    values.push_back(context.eval(argument, env));
+    values.push_back(ctx.eval(argument, env));
   }
-  return apply_procedure(callable, std::move(values), context);
+  return apply_procedure(callable, std::move(values), ctx);
 }
 
 void CallExpr::trace(std::vector<const HeapEntity *> &worklist) const {
@@ -180,8 +180,8 @@ LetExpr::LetExpr(LetKind kind, std::vector<Binding> bindings,
                  const Expr *body)
     : kind{kind}, bindings{std::move(bindings)}, body{body} {}
 
-EvalResult LetExpr::eval(Env &env, Ctx &context) const {
-  Env &local = *context.alloc<Env>(&env);
+EvalResult LetExpr::eval(Env &env, Ctx &ctx) const {
+  Env &local = *ctx.alloc<Env>(&env);
   if (kind == LetKind::Rec) {
     for (const auto &binding : bindings) {
       local.define(binding.name, Void{});
@@ -190,7 +190,7 @@ EvalResult LetExpr::eval(Env &env, Ctx &context) const {
 
   Env &initializer_env = kind == LetKind::Plain ? env : local;
   for (const auto &binding : bindings) {
-    Obj value = context.eval(binding.initializer, initializer_env);
+    Obj value = ctx.eval(binding.initializer, initializer_env);
     if (kind == LetKind::Rec) {
       local.set(binding.name, value);
     } else {
@@ -211,11 +211,11 @@ LogicalExpr::LogicalExpr(LogicalKind kind,
                          std::vector<const Expr *> operands)
     : kind{kind}, operands{std::move(operands)} {}
 
-EvalResult LogicalExpr::eval(Env &env, Ctx &context) const {
+EvalResult LogicalExpr::eval(Env &env, Ctx &ctx) const {
   bool conjunction = kind == LogicalKind::And;
   for (const Expr *operand :
        std::span{operands}.first(operands.size() - 1)) {
-    Obj value = context.eval(operand, env);
+    Obj value = ctx.eval(operand, env);
     if (value.is_true() != conjunction) {
       return value;
     }
@@ -232,28 +232,28 @@ CondExpr::CondExpr(std::vector<CondClause> clauses)
     : clauses{std::move(clauses)} {}
 
 std::optional<EvalResult> CondExpr::try_eval(
-    Env &env, Ctx &context) const {
+    Env &env, Ctx &ctx) const {
   for (const CondClause &clause : clauses) {
     auto result = std::visit(
         overloaded{
             [&](CondTest c) -> std::optional<EvalResult> {
-              Obj value = context.eval(c.test, env);
+              Obj value = ctx.eval(c.test, env);
               return value.is_false()
                          ? std::nullopt
                          : std::optional<EvalResult>{value};
             },
             [&](CondBody c) -> std::optional<EvalResult> {
-              return context.eval(c.test, env).is_false()
+              return ctx.eval(c.test, env).is_false()
                          ? std::nullopt
                          : std::optional<EvalResult>{TailCall{c.body, env}};
             },
             [&](CondArrow c) -> std::optional<EvalResult> {
-              Obj value = context.eval(c.test, env);
+              Obj value = ctx.eval(c.test, env);
               if (value.is_false()) {
                 return std::nullopt;
               }
-              Obj receiver = context.eval(c.receiver, env);
-              return apply_procedure(receiver, {value}, context);
+              Obj receiver = ctx.eval(c.receiver, env);
+              return apply_procedure(receiver, {value}, ctx);
             },
             [&](CondElse c) -> std::optional<EvalResult> {
               return TailCall{c.body, env};
@@ -267,8 +267,8 @@ std::optional<EvalResult> CondExpr::try_eval(
   return std::nullopt;
 }
 
-EvalResult CondExpr::eval(Env &env, Ctx &context) const {
-  return try_eval(env, context).value_or(EvalResult{Obj(Void{})});
+EvalResult CondExpr::eval(Env &env, Ctx &ctx) const {
+  return try_eval(env, ctx).value_or(EvalResult{Obj(Void{})});
 }
 
 void CondExpr::trace(std::vector<const HeapEntity *> &worklist) const {
@@ -296,8 +296,8 @@ void CondExpr::trace(std::vector<const HeapEntity *> &worklist) const {
 CaseExpr::CaseExpr(const Expr *key, std::vector<CaseClause> clauses)
     : key{key}, clauses{std::move(clauses)} {}
 
-EvalResult CaseExpr::eval(Env &env, Ctx &context) const {
-  Obj value = context.eval(key, env);
+EvalResult CaseExpr::eval(Env &env, Ctx &ctx) const {
+  Obj value = ctx.eval(key, env);
   for (const auto &clause : clauses) {
     bool matched = !clause.datums;
     if (clause.datums) {
@@ -328,13 +328,13 @@ GuardExpr::GuardExpr(Symbol variable, const CondExpr *handler,
                      const Expr *body)
     : variable{variable}, handler{handler}, body{body} {}
 
-EvalResult GuardExpr::eval(Env &env, Ctx &context) const {
+EvalResult GuardExpr::eval(Env &env, Ctx &ctx) const {
   try {
-    return context.eval(body, env);
+    return ctx.eval(body, env);
   } catch (SchemeError &error) {
-    Env &handler_env = *context.alloc<Env>(&env);
-    handler_env.define(variable, error.as_condition(context));
-    if (auto handled = handler->try_eval(handler_env, context)) {
+    Env &handler_env = *ctx.alloc<Env>(&env);
+    handler_env.define(variable, error.as_condition(ctx));
+    if (auto handled = handler->try_eval(handler_env, ctx)) {
       return *handled;
     }
     throw;
@@ -348,8 +348,8 @@ void GuardExpr::trace(std::vector<const HeapEntity *> &worklist) const {
 
 DelayExpr::DelayExpr(const Expr *body) : body{body} {}
 
-EvalResult DelayExpr::eval(Env &env, Ctx &context) const {
-  return Obj(context.alloc<Promise>(body, env));
+EvalResult DelayExpr::eval(Env &env, Ctx &ctx) const {
+  return Obj(ctx.alloc<Promise>(body, env));
 }
 
 void DelayExpr::trace(std::vector<const HeapEntity *> &worklist) const {
@@ -359,10 +359,10 @@ void DelayExpr::trace(std::vector<const HeapEntity *> &worklist) const {
 ConsStreamExpr::ConsStreamExpr(const Expr *head, const Expr *tail)
     : head{head}, tail{tail} {}
 
-EvalResult ConsStreamExpr::eval(Env &env, Ctx &context) const {
-  Obj value = context.eval(head, env);
-  return Obj(context.alloc<Cons>(
-      value, context.alloc<Promise>(tail, env)));
+EvalResult ConsStreamExpr::eval(Env &env, Ctx &ctx) const {
+  Obj value = ctx.eval(head, env);
+  return Obj(ctx.alloc<Cons>(
+      value, ctx.alloc<Promise>(tail, env)));
 }
 
 void ConsStreamExpr::trace(

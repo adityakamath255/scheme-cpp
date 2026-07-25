@@ -512,7 +512,7 @@ Formals Formals::parse(Obj formals) {
 }
 
 void Formals::bind(Env &env, const std::vector<Obj> &args,
-                   Ctx &context) const {
+                   Ctx &ctx) const {
   auto arity = rest ? Arity::at_least(fixed.size())
                     : Arity::exactly(fixed.size());
   if (auto error = arity.mismatch(args.size())) {
@@ -524,7 +524,7 @@ void Formals::bind(Env &env, const std::vector<Obj> &args,
   }
   if (rest) {
     env.define(*rest,
-               list_from(args | std::views::drop(fixed.size()), context));
+               list_from(args | std::views::drop(fixed.size()), ctx));
   }
 }
 
@@ -541,9 +541,9 @@ void Procedure::trace(std::vector<const HeapEntity *> &worklist) const {
 
 Promise::Promise(const Expr *body, Env &env) : state{Thunk{body, env}} {}
 
-Obj Promise::force(Ctx &context) {
+Obj Promise::force(Ctx &ctx) {
   if (auto *t = std::get_if<Thunk>(&state)) {
-    state = context.eval(t->body, t->env.get());
+    state = ctx.eval(t->body, t->env.get());
   }
   return std::get<Obj>(state);
 }

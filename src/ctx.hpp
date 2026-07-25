@@ -36,7 +36,7 @@ class Ctx {
 
 public:
   class DepthGuard {
-    Ctx &context;
+    Ctx &ctx;
 
   public:
     explicit DepthGuard(Ctx &);
@@ -78,10 +78,10 @@ public:
 
 template<std::ranges::bidirectional_range R>
   requires std::constructible_from<Obj, std::ranges::range_reference_t<R>>
-Obj list_from(R &&elements, Ctx &context, Obj tail = Null{}) {
+Obj list_from(R &&elements, Ctx &ctx, Obj tail = Null{}) {
   return std::ranges::fold_left(
       std::forward<R>(elements) | std::views::reverse, tail,
-      [&context](Obj rest, Obj element) -> Obj {
-        return context.alloc<Cons>(element, rest);
+      [&ctx](Obj rest, Obj element) -> Obj {
+        return ctx.alloc<Cons>(element, rest);
       });
 }

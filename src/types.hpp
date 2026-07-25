@@ -216,7 +216,7 @@ struct Formals {
   const std::optional<Symbol> rest;
 
   static Formals parse(Obj formals);
-  void bind(Env &env, const std::vector<Obj> &args, Ctx &context) const;
+  void bind(Env &env, const std::vector<Obj> &args, Ctx &ctx) const;
 };
 
 struct Procedure : HeapEntity {
@@ -239,7 +239,7 @@ class Promise : public HeapEntity {
 public:
   Promise(const Expr *body, Env &env);
 
-  Obj force(Ctx &context);
+  Obj force(Ctx &ctx);
 
   void trace(std::vector<const HeapEntity *> &) const override;
 };

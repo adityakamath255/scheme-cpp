@@ -20,4 +20,4 @@ struct ReadIncomplete {};
 
 using ReadOutcome = std::variant<ReadDatum, ReadEnd, ReadIncomplete>;
 
-ReadOutcome read_one(std::string_view source, Ctx &context);
+ReadOutcome read_one(std::string_view source, Ctx &ctx);

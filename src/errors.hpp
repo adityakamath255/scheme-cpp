@@ -16,7 +16,7 @@ struct SchemeError : scheme::EvaluationError {
   explicit SchemeError(const std::string &message);
   static SchemeError raised(Obj payload);
 
-  Obj as_condition(Ctx &context);
+  Obj as_condition(Ctx &ctx);
 };
 
 struct UnattributedError : SchemeError {

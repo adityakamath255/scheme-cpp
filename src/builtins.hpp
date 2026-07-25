@@ -2,4 +2,4 @@
 
 class Ctx;
 
-void install_builtins(Ctx &context);
+void install_builtins(Ctx &ctx);

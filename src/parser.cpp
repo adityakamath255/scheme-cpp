@@ -41,7 +41,7 @@ static std::vector<Obj> form_arguments(Obj rest, std::string_view name,
 
 }
 
-Parser::Parser(Ctx &context) : context{context} {}
+Parser::Parser(Ctx &ctx) : ctx{ctx} {}
 
 Parser::FormParser Parser::form_parser(std::string_view name) const {
   static const std::unordered_map<std::string_view, FormParser> forms = {
@@ -72,9 +72,9 @@ Parser::FormParser Parser::form_parser(std::string_view name) const {
 
 Obj Parser::expand_macro(Obj arguments, Symbol name, Procedure *macro) {
   std::vector<Obj> elements = list_elements(arguments, name.name());
-  Env &env = *context.alloc<Env>(&macro->env.get());
-  macro->code->formals.bind(env, elements, context);
-  return context.eval(macro->code->body, env);
+  Env &env = *ctx.alloc<Env>(&macro->env.get());
+  macro->code->formals.bind(env, elements, ctx);
+  return ctx.eval(macro->code->body, env);
 }
 
 Obj Parser::expand_head(Obj expression) {
@@ -91,7 +91,7 @@ Obj Parser::expand_head(Obj expression) {
     if (form_parser(name->name())) {
       return expression;
     }
-    Procedure *macro = context.lookup_macro(*name);
+    Procedure *macro = ctx.lookup_macro(*name);
     if (!macro) {
       return expression;
     }
@@ -101,13 +101,13 @@ Obj Parser::expand_head(Obj expression) {
 }
 
 const Expr *Parser::parse(Obj datum) {
-  Ctx::DepthGuard guard{context};
+  Ctx::DepthGuard guard{ctx};
   if (auto symbol = datum.try_as_symbol()) {
-    return context.alloc<ReferenceExpr>(*symbol);
+    return ctx.alloc<ReferenceExpr>(*symbol);
   }
   Cons *form = datum.try_as_cons();
   if (!form) {
-    return context.alloc<LiteralExpr>(datum);
+    return ctx.alloc<LiteralExpr>(datum);
   }
 
   Obj head = form->car;
@@ -115,7 +115,7 @@ const Expr *Parser::parse(Obj datum) {
     if (auto parser = form_parser(name->name())) {
       return (this->*parser)(form->cdr);
     }
-    if (Procedure *macro = context.lookup_macro(*name)) {
+    if (Procedure *macro = ctx.lookup_macro(*name)) {
       return parse(expand_macro(form->cdr, *name, macro));
     }
   }
@@ -128,12 +128,12 @@ const Expr *Parser::parse(Obj datum) {
   for (Obj argument : raw_arguments) {
     arguments.push_back(parse(argument));
   }
-  return context.alloc<CallExpr>(procedure, std::move(arguments));
+  return ctx.alloc<CallExpr>(procedure, std::move(arguments));
 }
 
 const Expr *Parser::parse_sequence(std::span<const Obj> forms) {
   if (forms.empty()) {
-    return context.alloc<LiteralExpr>(Void{});
+    return ctx.alloc<LiteralExpr>(Void{});
   }
   if (forms.size() == 1) {
     return parse(forms.front());
@@ -143,12 +143,12 @@ const Expr *Parser::parse_sequence(std::span<const Obj> forms) {
   for (Obj form : forms) {
     expressions.push_back(parse(form));
   }
-  return context.alloc<BeginExpr>(std::move(expressions));
+  return ctx.alloc<BeginExpr>(std::move(expressions));
 }
 
 const Expr *Parser::parse_quote(Obj rest) {
   auto arguments = form_arguments(rest, "quote", Arity::exactly(1));
-  return context.alloc<LiteralExpr>(arguments.front());
+  return ctx.alloc<LiteralExpr>(arguments.front());
 }
 
 const Expr *Parser::parse_if(Obj rest) {
@@ -157,8 +157,8 @@ const Expr *Parser::parse_if(Obj rest) {
   const Expr *consequent = parse(arguments[1]);
   const Expr *alternative = arguments.size() == 3
                                 ? parse(arguments[2])
-                                : context.alloc<LiteralExpr>(Void{});
-  return context.alloc<IfExpr>(predicate, consequent, alternative);
+                                : ctx.alloc<LiteralExpr>(Void{});
+  return ctx.alloc<IfExpr>(predicate, consequent, alternative);
 }
 
 const Expr *Parser::parse_define(Obj rest) {
@@ -177,8 +177,8 @@ const Expr *Parser::parse_define(Obj rest) {
     const Expr *body = parse_sequence(
         std::span{arguments}.subspan(1));
     const Expr *lambda =
-        context.alloc<LambdaExpr>(std::move(formals), body);
-    return context.alloc<DefineExpr>(*name, lambda);
+        ctx.alloc<LambdaExpr>(std::move(formals), body);
+    return ctx.alloc<DefineExpr>(*name, lambda);
   }
 
   auto name = target.try_as_symbol();
@@ -192,8 +192,8 @@ const Expr *Parser::parse_define(Obj rest) {
   }
   const Expr *initializer = arguments.size() == 2
                                 ? parse(arguments[1])
-                                : context.alloc<LiteralExpr>(Void{});
-  return context.alloc<DefineExpr>(*name, initializer);
+                                : ctx.alloc<LiteralExpr>(Void{});
+  return ctx.alloc<DefineExpr>(*name, initializer);
 }
 
 const Expr *Parser::parse_set(Obj rest) {
@@ -203,14 +203,14 @@ const Expr *Parser::parse_set(Obj rest) {
     throw SchemeError("set!: expected symbol, got " +
                       arguments[0].type_name());
   }
-  return context.alloc<SetExpr>(*name, parse(arguments[1]));
+  return ctx.alloc<SetExpr>(*name, parse(arguments[1]));
 }
 
 const Expr *Parser::parse_lambda(Obj rest) {
   auto arguments = form_arguments(rest, "lambda", Arity::at_least(2));
   Formals formals = Formals::parse(arguments.front());
   const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
-  return context.alloc<LambdaExpr>(std::move(formals), body);
+  return ctx.alloc<LambdaExpr>(std::move(formals), body);
 }
 
 const Expr *Parser::parse_begin(Obj rest) {
@@ -244,7 +244,7 @@ const LetExpr *Parser::parse_ordinary_let(Obj rest, LetKind kind,
   auto arguments = form_arguments(rest, name, Arity::at_least(2));
   std::vector<Binding> bindings = parse_bindings(arguments[0], name);
   const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
-  return context.alloc<LetExpr>(kind, std::move(bindings), body);
+  return ctx.alloc<LetExpr>(kind, std::move(bindings), body);
 }
 
 const Expr *Parser::parse_let(Obj rest) {
@@ -254,7 +254,7 @@ const Expr *Parser::parse_let(Obj rest) {
     std::vector<Binding> bindings =
         parse_bindings(arguments.front(), "let");
     const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
-    return context.alloc<LetExpr>(LetKind::Plain, std::move(bindings),
+    return ctx.alloc<LetExpr>(LetKind::Plain, std::move(bindings),
                                   body);
   }
 
@@ -273,12 +273,12 @@ const Expr *Parser::parse_let(Obj rest) {
     initializers.push_back(binding.initializer);
   }
 
-  const Expr *lambda = context.alloc<LambdaExpr>(
+  const Expr *lambda = ctx.alloc<LambdaExpr>(
       Formals{std::move(parameters), std::nullopt}, body);
-  const Expr *procedure = context.alloc<LetExpr>(
+  const Expr *procedure = ctx.alloc<LetExpr>(
       LetKind::Rec, std::vector<Binding>{{*name, lambda}},
-      context.alloc<ReferenceExpr>(*name));
-  return context.alloc<CallExpr>(procedure, std::move(initializers));
+      ctx.alloc<ReferenceExpr>(*name));
+  return ctx.alloc<CallExpr>(procedure, std::move(initializers));
 }
 
 const Expr *Parser::parse_let_star(Obj rest) {
@@ -293,16 +293,16 @@ const Expr *Parser::parse_when(Obj rest) {
   auto arguments = form_arguments(rest, "when", Arity::at_least(1));
   const Expr *test = parse(arguments.front());
   const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
-  return context.alloc<IfExpr>(
-      test, body, context.alloc<LiteralExpr>(Void{}));
+  return ctx.alloc<IfExpr>(
+      test, body, ctx.alloc<LiteralExpr>(Void{}));
 }
 
 const Expr *Parser::parse_unless(Obj rest) {
   auto arguments = form_arguments(rest, "unless", Arity::at_least(1));
   const Expr *test = parse(arguments.front());
   const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
-  return context.alloc<IfExpr>(
-      test, context.alloc<LiteralExpr>(Void{}), body);
+  return ctx.alloc<IfExpr>(
+      test, ctx.alloc<LiteralExpr>(Void{}), body);
 }
 
 const CondExpr *Parser::parse_cond_clauses(Obj datum) {
@@ -342,7 +342,7 @@ const CondExpr *Parser::parse_cond_clauses(Obj datum) {
           test, parse_sequence(std::span{clause}.subspan(1))});
     }
   }
-  return context.alloc<CondExpr>(std::move(clauses));
+  return ctx.alloc<CondExpr>(std::move(clauses));
 }
 
 const Expr *Parser::parse_cond(Obj rest) {
@@ -372,7 +372,7 @@ const Expr *Parser::parse_case(Obj rest) {
     const Expr *body = parse_sequence(std::span{clause}.subspan(1));
     clauses.push_back({std::move(datums), body});
   }
-  return context.alloc<CaseExpr>(key, std::move(clauses));
+  return ctx.alloc<CaseExpr>(key, std::move(clauses));
 }
 
 static std::vector<const Expr *> parse_operands(Parser &parser, Obj rest,
@@ -389,34 +389,34 @@ static std::vector<const Expr *> parse_operands(Parser &parser, Obj rest,
 const Expr *Parser::parse_and(Obj rest) {
   auto operands = parse_operands(*this, rest, "and");
   if (operands.empty()) {
-    return context.alloc<LiteralExpr>(true);
+    return ctx.alloc<LiteralExpr>(true);
   }
   if (operands.size() == 1) {
     return operands.front();
   }
-  return context.alloc<LogicalExpr>(
+  return ctx.alloc<LogicalExpr>(
       LogicalKind::And, std::move(operands));
 }
 
 const Expr *Parser::parse_or(Obj rest) {
   auto operands = parse_operands(*this, rest, "or");
   if (operands.empty()) {
-    return context.alloc<LiteralExpr>(false);
+    return ctx.alloc<LiteralExpr>(false);
   }
   if (operands.size() == 1) {
     return operands.front();
   }
-  return context.alloc<LogicalExpr>(
+  return ctx.alloc<LogicalExpr>(
       LogicalKind::Or, std::move(operands));
 }
 
 const QuasiquoteTemplate *Parser::quasiquote_form(
     Symbol keyword, const QuasiquoteTemplate *argument) {
-  auto *null = context.alloc<QuasiquoteTemplate>(Obj(Null{}));
-  auto *tail = context.alloc<QuasiquoteTemplate>(
+  auto *null = ctx.alloc<QuasiquoteTemplate>(Obj(Null{}));
+  auto *tail = ctx.alloc<QuasiquoteTemplate>(
       QuasiquoteTemplate::Pair{argument, null});
-  auto *head = context.alloc<QuasiquoteTemplate>(Obj(keyword));
-  return context.alloc<QuasiquoteTemplate>(
+  auto *head = ctx.alloc<QuasiquoteTemplate>(Obj(keyword));
+  return ctx.alloc<QuasiquoteTemplate>(
       QuasiquoteTemplate::Pair{head, tail});
 }
 
@@ -429,13 +429,13 @@ const QuasiquoteTemplate *Parser::compile_quasiquote(
       elements.push_back(
           compile_quasiquote_element(element, quasiquote_depth));
     }
-    return context.alloc<QuasiquoteTemplate>(
+    return ctx.alloc<QuasiquoteTemplate>(
         QuasiquoteTemplate::VectorElements{std::move(elements)});
   }
 
   Cons *pair = datum.try_as_cons();
   if (!pair) {
-    return context.alloc<QuasiquoteTemplate>(datum);
+    return ctx.alloc<QuasiquoteTemplate>(datum);
   }
 
   if (auto keyword = pair->car.try_as_symbol()) {
@@ -455,7 +455,7 @@ const QuasiquoteTemplate *Parser::compile_quasiquote(
           throw SchemeError(
               "unquote-splicing: not in a list or vector");
         }
-        return context.alloc<QuasiquoteTemplate>(
+        return ctx.alloc<QuasiquoteTemplate>(
             QuasiquoteTemplate::Value{parse(arguments.front())});
       }
       return quasiquote_form(
@@ -468,7 +468,7 @@ const QuasiquoteTemplate *Parser::compile_quasiquote(
       compile_quasiquote_element(pair->car, quasiquote_depth);
   const QuasiquoteTemplate *cdr =
       compile_quasiquote(pair->cdr, quasiquote_depth);
-  return context.alloc<QuasiquoteTemplate>(
+  return ctx.alloc<QuasiquoteTemplate>(
       QuasiquoteTemplate::Pair{car, cdr});
 }
 
@@ -488,7 +488,7 @@ QuasiquoteElement Parser::compile_quasiquote_element(
 const Expr *Parser::parse_quasiquote(Obj rest) {
   auto arguments =
       form_arguments(rest, "quasiquote", Arity::exactly(1));
-  return context.alloc<QuasiquoteExpr>(
+  return ctx.alloc<QuasiquoteExpr>(
       compile_quasiquote(arguments.front(), 1));
 }
 
@@ -502,12 +502,12 @@ const Expr *Parser::parse_guard(Obj rest) {
   }
   const CondExpr *handler = parse_cond_clauses(guard->cdr);
   const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
-  return context.alloc<GuardExpr>(*variable, handler, body);
+  return ctx.alloc<GuardExpr>(*variable, handler, body);
 }
 
 const Expr *Parser::parse_delay(Obj rest) {
   auto arguments = form_arguments(rest, "delay", Arity::exactly(1));
-  return context.alloc<DelayExpr>(parse(arguments.front()));
+  return ctx.alloc<DelayExpr>(parse(arguments.front()));
 }
 
 const Expr *Parser::parse_cons_stream(Obj rest) {
@@ -515,7 +515,7 @@ const Expr *Parser::parse_cons_stream(Obj rest) {
       form_arguments(rest, "cons-stream", Arity::exactly(2));
   const Expr *head = parse(arguments[0]);
   const Expr *tail = parse(arguments[1]);
-  return context.alloc<ConsStreamExpr>(head, tail);
+  return ctx.alloc<ConsStreamExpr>(head, tail);
 }
 
 const Expr *Parser::parse_define_macro(Obj) {
@@ -535,9 +535,9 @@ void Parser::define_macro(Obj rest, Env &env) {
     Formals formals = Formals::parse(signature->cdr);
     const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
     const auto *code =
-        context.alloc<LambdaExpr>(std::move(formals), body);
-    context.define_macro(
-        *name, context.alloc<Procedure>(code, env));
+        ctx.alloc<LambdaExpr>(std::move(formals), body);
+    ctx.define_macro(
+        *name, ctx.alloc<Procedure>(code, env));
     return;
   }
 
@@ -549,12 +549,12 @@ void Parser::define_macro(Obj rest, Env &env) {
     throw SchemeError(std::format(
         "define-macro: expected 2 arguments, got {}", arguments.size()));
   }
-  Obj value = context.eval(parse(arguments[1]), env);
+  Obj value = ctx.eval(parse(arguments[1]), env);
   Procedure *macro = value.try_as_procedure();
   if (!macro) {
     throw SchemeError("define-macro: expected procedure");
   }
-  context.define_macro(*name, macro);
+  ctx.define_macro(*name, macro);
 }
 
 // top-level forms
@@ -576,5 +576,5 @@ Obj Parser::top_level(Obj datum, Env &env) {
       return Void{};
     }
   }
-  return context.eval(parse(datum), env);
+  return ctx.eval(parse(datum), env);
 }

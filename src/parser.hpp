@@ -8,7 +8,7 @@
 #include <vector>
 
 class Parser {
-  Ctx &context;
+  Ctx &ctx;
 
   using FormParser = const Expr *(Parser::*)(Obj);
 

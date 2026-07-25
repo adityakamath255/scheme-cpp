@@ -23,8 +23,8 @@ void trace_quasiquote_element(
 }
 
 std::vector<Obj> instantiate_splice(
-    const Expr *expression, Env &env, Ctx &context) {
-  List values{context.eval(expression, env)};
+    const Expr *expression, Env &env, Ctx &ctx) {
+  List values{ctx.eval(expression, env)};
   if (!values.proper()) {
     throw SchemeError("unquote-splicing: expected proper list");
   }
@@ -43,7 +43,7 @@ QuasiquoteTemplate::QuasiquoteTemplate(VectorElements value)
 QuasiquoteTemplate::QuasiquoteTemplate(Value value) : value{value} {}
 
 Obj QuasiquoteTemplate::instantiate(
-    Env &env, Ctx &context) const {
+    Env &env, Ctx &ctx) const {
   return std::visit(
       overloaded{
           [&](Obj datum) { return datum; },
@@ -51,15 +51,15 @@ Obj QuasiquoteTemplate::instantiate(
             return std::visit(
                 overloaded{
                     [&](const QuasiquoteTemplate *car) -> Obj {
-                      Obj car_value = car->instantiate(env, context);
-                      Obj cdr_value = pair.cdr->instantiate(env, context);
-                      return context.alloc<Cons>(car_value, cdr_value);
+                      Obj car_value = car->instantiate(env, ctx);
+                      Obj cdr_value = pair.cdr->instantiate(env, ctx);
+                      return ctx.alloc<Cons>(car_value, cdr_value);
                     },
                     [&](QuasiquoteSplice splice) -> Obj {
                       std::vector<Obj> elements = instantiate_splice(
-                          splice.expression, env, context);
-                      Obj tail = pair.cdr->instantiate(env, context);
-                      return list_from(elements, context, tail);
+                          splice.expression, env, ctx);
+                      Obj tail = pair.cdr->instantiate(env, ctx);
+                      return list_from(elements, ctx, tail);
                     },
                 },
                 pair.car);
@@ -71,19 +71,19 @@ Obj QuasiquoteTemplate::instantiate(
                   overloaded{
                       [&](const QuasiquoteTemplate *value) {
                         elements.push_back(
-                            value->instantiate(env, context));
+                            value->instantiate(env, ctx));
                       },
                       [&](QuasiquoteSplice splice) {
                         elements.append_range(instantiate_splice(
-                            splice.expression, env, context));
+                            splice.expression, env, ctx));
                       },
                   },
                   element);
             }
-            return context.alloc<Vector>(std::move(elements));
+            return ctx.alloc<Vector>(std::move(elements));
           },
           [&](Value hole) {
-            return context.eval(hole.expression, env);
+            return ctx.eval(hole.expression, env);
           },
       },
       value);
@@ -112,8 +112,8 @@ void QuasiquoteTemplate::trace(
 QuasiquoteExpr::QuasiquoteExpr(const QuasiquoteTemplate *value)
     : value{value} {}
 
-EvalResult QuasiquoteExpr::eval(Env &env, Ctx &context) const {
-  return value->instantiate(env, context);
+EvalResult QuasiquoteExpr::eval(Env &env, Ctx &ctx) const {
+  return value->instantiate(env, ctx);
 }
 
 void QuasiquoteExpr::trace(

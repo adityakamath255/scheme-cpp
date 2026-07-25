@@ -18,6 +18,6 @@ SchemeError SchemeError::raised(Obj payload) {
   return e;
 }
 
-Obj SchemeError::as_condition(Ctx &context) {
-  return payload ? *payload : Obj(context.alloc<Error>(what(), Null{}));
+Obj SchemeError::as_condition(Ctx &ctx) {
+  return payload ? *payload : Obj(ctx.alloc<Error>(what(), Null{}));
 }

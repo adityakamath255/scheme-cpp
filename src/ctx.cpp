@@ -59,14 +59,14 @@ Ctx::Ctx()
   execute(preamble);
 }
 
-Ctx::DepthGuard::DepthGuard(Ctx &context) : context{context} {
-  if (context.depth >= max_depth) {
+Ctx::DepthGuard::DepthGuard(Ctx &ctx) : ctx{ctx} {
+  if (ctx.depth >= max_depth) {
     throw SchemeError("recursion too deep");
   }
-  context.depth += 1;
+  ctx.depth += 1;
 }
 
-Ctx::DepthGuard::~DepthGuard() { context.depth -= 1; }
+Ctx::DepthGuard::~DepthGuard() { ctx.depth -= 1; }
 
 void Ctx::own(std::unique_ptr<HeapEntity> object) {
   heap.push_back(std::move(object));
