@@ -9,41 +9,33 @@ interning.
 Requires CMake 3.16+ and a C++23 compiler.
 
 ```bash
-cmake -S . -B build
-cmake --build build
+cmake -S . -B build/native
+cmake --build build/native
 ```
 
-The binary is `build/cli/scheme`.
+The binary is `build/native/cli/scheme`.
 
 ## Usage
 
 ```bash
-./build/cli/scheme              # start the REPL
-./build/cli/scheme file.scm     # run a file and exit
-./build/cli/scheme -i file.scm  # run a file, then enter the REPL
+./build/native/cli/scheme              # start the REPL
+./build/native/cli/scheme file.scm     # run a file and exit
+./build/native/cli/scheme -i file.scm  # run a file, then enter the REPL
 ```
 
 With no file on a terminal it starts the REPL. Piped on stdin
-(`echo '(+ 1 2)' | ./build/cli/scheme`) it runs the input and exits. `-i` (or
-`--interactive`) keeps the REPL open after a file.
+(`echo '(+ 1 2)' | ./build/native/cli/scheme`) it runs the input and exits.
+`-i` (or `--interactive`) keeps the REPL open after a file.
 
 The REPL supports multi-line input (brackets are tracked across lines), line
 editing, and history via
 [replxx](https://github.com/AmokHuginnsson/replxx). Ctrl+D exits. Ctrl+C clears
 the current input.
 
-## Library
+## API
 
-The CLI and WebAssembly frontends use the same static library. Projects that
-include this repository can link its CMake alias:
-
-```cmake
-add_subdirectory(path/to/scheme-cpp)
-target_link_libraries(my-program PRIVATE scheme::scheme)
-```
-
-When included as a subdirectory, the CLI and tests are disabled by default.
-The public API is `include/scheme/session.hpp`:
+The CLI and WebAssembly frontends use the static library defined in the root
+CMake project. Its public API is `include/scheme/session.hpp`:
 
 ```cpp
 #include <scheme/session.hpp>
@@ -83,12 +75,15 @@ definitions across runs; "Reset session" starts fresh. A GitHub Actions
 workflow (`.github/workflows/pages.yml`) builds with emscripten and deploys to
 GitHub Pages on every push to `main`.
 
-Building the wasm locally needs the [emscripten SDK](https://emscripten.org):
+Building the wasm locally needs the [emscripten SDK](https://emscripten.org)
+and Node.js:
 
 ```bash
-emcmake cmake -S web -B web/build
-cmake --build web/build
+web/build.sh
 ```
+
+The site is written to `build/site`. Run `web/dev.sh` to build and serve it at
+<http://localhost:8137>.
 
 ## What's implemented
 
@@ -258,7 +253,7 @@ equality.
 ## Tests
 
 ```bash
-ctest --test-dir build --output-on-failure
+ctest --test-dir build/native --output-on-failure
 ```
 
 Tests are written in Scheme using a small framework (`tests/framework.scm`)
