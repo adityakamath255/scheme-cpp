@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <compare>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -85,11 +86,22 @@ size_t IndexPattern::parse(Args raw, size_t &position) const {
   return *value;
 }
 
-template <typename Pattern> struct OptionalPattern {
-  using Value = std::optional<typename Pattern::Value>;
+template<typename P>
+concept Pattern = requires(P pattern, Args raw, size_t &position) {
+  typename P::Value;
+  requires std::same_as<decltype(P::kind), const PatternKind>;
+  { pattern.parse(raw, position) } -> std::same_as<typename P::Value>;
+};
+
+template<typename P>
+concept RequiredPattern =
+    Pattern<P> && P::kind == PatternKind::Required;
+
+template<RequiredPattern P> struct OptionalPattern {
+  using Value = std::optional<typename P::Value>;
   static constexpr PatternKind kind = PatternKind::Optional;
 
-  Pattern pattern;
+  P pattern;
 
   Value parse(Args raw, size_t &position) const {
     if (position == raw.size()) {
@@ -99,11 +111,11 @@ template <typename Pattern> struct OptionalPattern {
   }
 };
 
-template <typename Pattern> struct RestPattern {
-  using Value = std::vector<typename Pattern::Value>;
+template<RequiredPattern P> struct RestPattern {
+  using Value = std::vector<typename P::Value>;
   static constexpr PatternKind kind = PatternKind::Rest;
 
-  Pattern pattern;
+  P pattern;
 
   Value parse(Args raw, size_t &position) const {
     Value values;
@@ -115,12 +127,13 @@ template <typename Pattern> struct RestPattern {
   }
 };
 
-template <typename Pattern>
-OptionalPattern<Pattern> optional(Pattern pattern) {
+template<RequiredPattern P>
+OptionalPattern<P> optional(P pattern) {
   return {pattern};
 }
 
-template <typename Pattern> RestPattern<Pattern> rest(Pattern pattern) {
+template<RequiredPattern P>
+RestPattern<P> rest(P pattern) {
   return {pattern};
 }
 
@@ -136,7 +149,7 @@ consteval bool valid_transition(PatternKind previous, PatternKind next) {
   std::unreachable();
 }
 
-template <typename... Patterns> consteval bool valid_patterns() {
+template<Pattern... Patterns> consteval bool valid_patterns() {
   if constexpr (sizeof...(Patterns) == 0) {
     return true;
   } else {
@@ -149,10 +162,9 @@ template <typename... Patterns> consteval bool valid_patterns() {
   }
 }
 
-template <typename... Patterns> auto match(Args raw, Patterns... patterns) {
-  static_assert(valid_patterns<Patterns...>(),
-                "required patterns precede optional or final rest patterns");
-
+template<Pattern... Patterns>
+  requires(valid_patterns<Patterns...>())
+auto match(Args raw, Patterns... patterns) {
   constexpr size_t min =
       (size_t{0} + ... + (Patterns::kind == PatternKind::Required ? 1 : 0));
   constexpr bool unbounded =
@@ -179,11 +191,11 @@ class Installer {
 public:
   explicit Installer(Ctx &context) : context{context} {}
 
-  template <typename Implementation>
+  template<typename Implementation>
+    requires std::is_empty_v<Implementation> &&
+             std::copy_constructible<Implementation> &&
+             std::is_invocable_r_v<Obj, Implementation, Args, Ctx &>
   void operator()(std::string_view name, Implementation implementation) const {
-    static_assert(std::is_empty_v<Implementation>,
-                  "builtin implementations must not capture state");
-
     auto adapter = [name = std::string{name}, implementation](
                        Args raw, Ctx &context) -> Obj {
       try {
@@ -224,12 +236,10 @@ static Number minmax(Number first, const std::vector<Number> &rest,
   return inexact ? best.to_inexact() : best;
 }
 
-template <typename Container>
-static decltype(auto) element_at(Container &container, size_t index) {
-  if (index >= container.size()) {
+static void require_index(size_t size, size_t index) {
+  if (index >= size) {
     throw UnattributedError("index out of range");
   }
-  return container[index];
 }
 
 template <auto Predicate>
@@ -483,7 +493,8 @@ static void install_lists(Installer install) {
   install("list-ref", [](Args raw, Ctx &) -> Obj {
     auto [pair, index] = match(raw, arg::pair, arg::index);
     List list{pair};
-    return element_at(list.elements, index);
+    require_index(list.elements.size(), index);
+    return list.elements[index];
   });
   install("set-car!", [](Args raw, Ctx &) {
     auto [pair, value] = match(raw, arg::pair, arg::any);
@@ -504,7 +515,8 @@ static void install_strings(Installer install) {
   });
   install("string-ref", [](Args raw, Ctx &) -> Obj {
     auto [string, index] = match(raw, arg::string, arg::index);
-    return element_at(string->data, index);
+    require_index(string->data.size(), index);
+    return string->data[index];
   });
   install("substring", [](Args raw, Ctx &context) -> Obj {
     auto [string, start, requested_end] =
@@ -625,12 +637,14 @@ static void install_vectors(Installer install) {
   });
   install("vector-ref", [](Args raw, Ctx &) -> Obj {
     auto [vector, index] = match(raw, arg::vector, arg::index);
-    return element_at(vector->data, index);
+    require_index(vector->data.size(), index);
+    return vector->data[index];
   });
   install("vector-set!", [](Args raw, Ctx &) {
     auto [vector, index, value] =
         match(raw, arg::vector, arg::index, arg::any);
-    element_at(vector->data, index) = value;
+    require_index(vector->data.size(), index);
+    vector->data[index] = value;
     return Void{};
   });
   install("vector-length", [](Args raw, Ctx &context) {

@@ -341,8 +341,7 @@ bool Obj::equals(Obj other) const {
 
 static std::string render(Obj obj, bool write);
 
-static std::string join_elems(std::ranges::input_range auto &&elems,
-                              bool write) {
+static std::string join_elems(const std::vector<Obj> &elems, bool write) {
   return std::ranges::to<std::string>(
       elems |
       std::views::transform([write](Obj x) { return render(x, write); }) |
@@ -408,10 +407,6 @@ std::string Obj::type_name() const {
     return type_name_for<T>();
   }));
 }
-
-Obj Obj::car() const { return as_cons()->car; }
-
-Obj Obj::cdr() const { return as_cons()->cdr; }
 
 List::List(Obj value) : elements{}, tail{value} {
   while (Cons *cons = tail.try_as_cons()) {

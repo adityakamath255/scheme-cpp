@@ -143,9 +143,6 @@ public:
   std::string type_name() const;
 
   bool is_list() const;
-
-  Obj car() const;
-  Obj cdr() const;
 };
 
 struct List {

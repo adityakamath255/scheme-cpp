@@ -10,7 +10,6 @@
 #include <cmath>
 #include <cstring>
 #include <format>
-#include <functional>
 #include <limits>
 
 namespace {
@@ -48,10 +47,9 @@ constexpr int64_t fixnum_min = std::numeric_limits<int64_t>::min() + 1;
 constexpr int64_t fixnum_max = std::numeric_limits<int64_t>::max();
 constexpr double int64_magnitude = 0x1p63;
 
-template<typename Allocator>
-Rep of_i64(int64_t v, Allocator &allocator) {
+Rep of_i64(int64_t v, Ctx &context) {
   if (v < fixnum_min) {
-    BigInt *b = allocator.template alloc<BigInt>();
+    BigInt *b = context.alloc<BigInt>();
     mp_set_i64(&b->val, v);
     return b;
   }
@@ -60,10 +58,9 @@ Rep of_i64(int64_t v, Allocator &allocator) {
   }
 }
 
-template<typename Allocator>
-Rep from_bigint(BigInt *b, Allocator &allocator) {
+Rep from_bigint(BigInt *b, Ctx &context) {
   if (mp_count_bits(&b->val) < 64) {
-    return of_i64(mp_get_i64(&b->val), allocator);
+    return of_i64(mp_get_i64(&b->val), context);
   }
   else {
     return b;
@@ -106,44 +103,114 @@ bool rep_is_negative(const Rep &r) {
   }, r);
 }
 
-using MpBinop = mp_err (*)(const mp_int *, const mp_int *, mp_int *);
-using MpUnop  = mp_err (*)(const mp_int *, mp_int *);
+enum class BinaryOperation { Add, Subtract, Multiply };
+enum class UnaryOperation { Negate, Absolute };
 
-Rep exact_binop(const Rep &a, const Rep &b, Ctx &context, MpBinop op) {
+__int128 apply(BinaryOperation operation, __int128 a, __int128 b) {
+  switch (operation) {
+  case BinaryOperation::Add:
+    return a + b;
+  case BinaryOperation::Subtract:
+    return a - b;
+  case BinaryOperation::Multiply:
+    return a * b;
+  }
+  std::unreachable();
+}
+
+double apply(BinaryOperation operation, double a, double b) {
+  switch (operation) {
+  case BinaryOperation::Add:
+    return a + b;
+  case BinaryOperation::Subtract:
+    return a - b;
+  case BinaryOperation::Multiply:
+    return a * b;
+  }
+  std::unreachable();
+}
+
+mp_err apply(BinaryOperation operation, const mp_int *a, const mp_int *b,
+             mp_int *result) {
+  switch (operation) {
+  case BinaryOperation::Add:
+    return mp_add(a, b, result);
+  case BinaryOperation::Subtract:
+    return mp_sub(a, b, result);
+  case BinaryOperation::Multiply:
+    return mp_mul(a, b, result);
+  }
+  std::unreachable();
+}
+
+int64_t apply(UnaryOperation operation, int64_t value) {
+  switch (operation) {
+  case UnaryOperation::Negate:
+    return -value;
+  case UnaryOperation::Absolute:
+    return value < 0 ? -value : value;
+  }
+  std::unreachable();
+}
+
+double apply(UnaryOperation operation, double value) {
+  switch (operation) {
+  case UnaryOperation::Negate:
+    return -value;
+  case UnaryOperation::Absolute:
+    return value < 0 ? -value : value;
+  }
+  std::unreachable();
+}
+
+mp_err apply(UnaryOperation operation, const mp_int *value, mp_int *result) {
+  switch (operation) {
+  case UnaryOperation::Negate:
+    return mp_neg(value, result);
+  case UnaryOperation::Absolute:
+    return mp_abs(value, result);
+  }
+  std::unreachable();
+}
+
+Rep exact_binop(const Rep &a, const Rep &b, Ctx &context,
+                BinaryOperation operation) {
   BigInt *r = context.alloc<BigInt>();
   Mp sa, sb;
-  check(op(as_mp(a, sa), as_mp(b, sb), &r->val));
+  check(apply(operation, as_mp(a, sa), as_mp(b, sb), &r->val));
   return from_bigint(r, context);
 }
 
-template<typename Op>
-Rep arith(const Rep &a, const Rep &b, Ctx &context, Op op, MpBinop mp) {
+Rep arith(const Rep &a, const Rep &b, Ctx &context,
+          BinaryOperation operation) {
   if (rep_is_exact(a) && rep_is_exact(b)) {
     auto ai = std::get_if<int64_t>(&a);
     auto bi = std::get_if<int64_t>(&b);
     if (ai && bi) {
-      __int128 w = op(static_cast<__int128>(*ai), static_cast<__int128>(*bi));
+      __int128 w = apply(operation, static_cast<__int128>(*ai),
+                         static_cast<__int128>(*bi));
       if (w >= fixnum_min && w <= fixnum_max) {
         return of_i64(static_cast<int64_t>(w), context);
       }
     }
-    return exact_binop(a, b, context, mp);
+    return exact_binop(a, b, context, operation);
   }
   else {
-    return op(rep_to_double(a), rep_to_double(b));
+    return apply(operation, rep_to_double(a), rep_to_double(b));
   }
 }
 
-template<typename Fix>
-Rep unary(const Rep &a, Ctx &context, MpUnop mp, Fix fix) {
+Rep unary(const Rep &a, Ctx &context, UnaryOperation operation) {
   return std::visit(overloaded {
-    [&](int64_t v) -> Rep { return of_i64(fix(v), context); },
+    [&](int64_t v) -> Rep {
+      return of_i64(apply(operation, v), context);
+    },
     [&](BigInt *b) -> Rep {
       BigInt *r = context.alloc<BigInt>();
-      check(mp(&b->val, &r->val));
+      check(apply(operation, &b->val, &r->val));
       return from_bigint(r, context);
     },
-    [&](double d) -> Rep { return fix(d); },
+    [&](double d) -> Rep { return apply(operation, d); },
   }, a);
 }
 
@@ -240,21 +307,15 @@ bool Number::is_even() const {
 }
 
 Number Number::add(Number o, Ctx &context) const {
-  return Number(arith(
-    rep, o.rep, context, std::plus<>{}, mp_add
-  ));
+  return Number(arith(rep, o.rep, context, BinaryOperation::Add));
 }
 
 Number Number::sub(Number o, Ctx &context) const {
-  return Number(arith(
-    rep, o.rep, context, std::minus<>{}, mp_sub
-  )); 
+  return Number(arith(rep, o.rep, context, BinaryOperation::Subtract));
 }
 
 Number Number::mul(Number o, Ctx &context) const {
-  return Number(arith(
-    rep, o.rep, context, std::multiplies<>{}, mp_mul
-  ));
+  return Number(arith(rep, o.rep, context, BinaryOperation::Multiply));
 }
 
 Number Number::div(Number o, Ctx &context) const {
@@ -271,15 +332,11 @@ Number Number::div(Number o, Ctx &context) const {
 }
 
 Number Number::neg(Ctx &context) const {
-  return Number(unary(
-    rep, context, mp_neg, [](auto x) { return -x; }
-  ));
+  return Number(unary(rep, context, UnaryOperation::Negate));
 }
 
 Number Number::abs(Ctx &context) const {
-  return Number(unary(
-    rep, context, mp_abs, [](auto x) { return x < 0 ? -x : x; }
-  ));
+  return Number(unary(rep, context, UnaryOperation::Absolute));
 }
 
 Number Number::sqrt(Ctx &context) const {

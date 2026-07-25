@@ -4,6 +4,7 @@
 #include "types.hpp"
 
 #include <algorithm>
+#include <concepts>
 #include <cstddef>
 #include <memory>
 #include <ranges>
@@ -51,6 +52,8 @@ public:
   void install_builtin(std::string_view, Builtin::Implementation);
 
   template<typename T, typename... Args>
+    requires std::derived_from<T, HeapEntity> &&
+             std::constructible_from<T, Args...>
   T *alloc(Args &&...args) {
     auto owned = std::make_unique<T>(std::forward<Args>(args)...);
     T *object = owned.get();
@@ -74,6 +77,7 @@ public:
 };
 
 template<std::ranges::bidirectional_range R>
+  requires std::constructible_from<Obj, std::ranges::range_reference_t<R>>
 Obj list_from(R &&elements, Ctx &context, Obj tail = Null{}) {
   return std::ranges::fold_left(
       std::forward<R>(elements) | std::views::reverse, tail,
