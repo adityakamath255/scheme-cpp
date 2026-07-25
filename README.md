@@ -256,12 +256,21 @@ equality.
 ctest --test-dir build/native --output-on-failure
 ```
 
-Tests are written in Scheme using a small framework (`tests/framework.scm`)
-that provides `assert` and `summary`. There are 15 test files covering
-arithmetic, numbers, closures, lists, strings, chars, vectors, special forms,
-macros, errors, streams, preamble functions, tail calls, integration, and stress
-scenarios (10k-element lists, heavy GC pressure, deeply nested closures, bulk
-vector allocation).
+The C++ test exercises the public API. The Scheme suite owns its registry,
+state, selection, and reporting in `tests/suite.scm`. There are 15 test groups
+covering arithmetic, numbers, closures, lists, strings, chars, vectors, special
+forms, macros, errors, streams, preamble functions, tail calls, integration,
+and stress scenarios.
+
+To run selected groups interactively:
+
+```bash
+./build/native/cli/scheme -i tests/suite.scm
+```
+
+```scheme
+(run-tests '(arithmetic lists))
+```
 
 ## Source layout
 

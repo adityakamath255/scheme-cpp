@@ -48,7 +48,12 @@ else()
   add_test(NAME scheme-api COMMAND scheme_api_test)
   add_test(
     NAME scheme-language
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run_tests.sh
-            $<TARGET_FILE:scheme_cli>
+    COMMAND scheme_cli tests/all.scm
+  )
+  set_tests_properties(
+    scheme-language
+    PROPERTIES
+      TIMEOUT 30
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   )
 endif()
