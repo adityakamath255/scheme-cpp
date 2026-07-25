@@ -253,14 +253,17 @@ equality.
 ## Tests
 
 ```bash
-ctest --test-dir build/native --output-on-failure
+./run_tests.sh
 ```
 
-The C++ test exercises the public API. The Scheme suite owns its registry,
-state, selection, and reporting in `tests/suite.scm`. There are 15 test groups
-covering arithmetic, numbers, closures, lists, strings, chars, vectors, special
-forms, macros, errors, streams, preamble functions, tail calls, integration,
-and stress scenarios.
+The build trees must already exist. The native tests exercise the public API
+and the Scheme language. The web test exercises the compiled Wasm module
+through its JavaScript interface.
+
+The Scheme suite owns its registry, state, selection, and reporting in
+`tests/suite.scm`. There are 15 test groups covering arithmetic, numbers,
+closures, lists, strings, chars, vectors, special forms, macros, errors,
+streams, preamble functions, tail calls, integration, and stress scenarios.
 
 To run selected groups interactively:
 

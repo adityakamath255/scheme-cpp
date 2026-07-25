@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(scheme-cpp LANGUAGES CXX)
 
+enable_testing()
+
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -42,7 +44,6 @@ if(EMSCRIPTEN)
 else()
   add_subdirectory(cli)
 
-  enable_testing()
   add_executable(scheme_api_test tests/test_api.cpp)
   target_link_libraries(scheme_api_test PRIVATE scheme)
   add_test(NAME scheme-api COMMAND scheme_api_test)
