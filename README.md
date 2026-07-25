@@ -13,18 +13,18 @@ cmake -S . -B build/native
 cmake --build build/native
 ```
 
-The binary is `build/native/cli/scheme`.
+The binary is `build/native/scheme`.
 
 ## Usage
 
 ```bash
-./build/native/cli/scheme              # start the REPL
-./build/native/cli/scheme file.scm     # run a file and exit
-./build/native/cli/scheme -i file.scm  # run a file, then enter the REPL
+./build/native/scheme              # start the REPL
+./build/native/scheme file.scm     # run a file and exit
+./build/native/scheme -i file.scm  # run a file, then enter the REPL
 ```
 
 With no file on a terminal it starts the REPL. Piped on stdin
-(`echo '(+ 1 2)' | ./build/native/cli/scheme`) it runs the input and exits.
+(`echo '(+ 1 2)' | ./build/native/scheme`) it runs the input and exits.
 `-i` (or `--interactive`) keeps the REPL open after a file.
 
 The REPL supports multi-line input (brackets are tracked across lines), line
@@ -268,7 +268,7 @@ streams, preamble functions, tail calls, integration, and stress scenarios.
 To run selected groups interactively:
 
 ```bash
-./build/native/cli/scheme -i tests/suite.scm
+./build/native/scheme -i tests/suite.scm
 ```
 
 ```scheme

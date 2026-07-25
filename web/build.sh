@@ -12,4 +12,4 @@ mkdir -p "$site"
 npx --yes --package typescript@5.8.3 tsc \
   -p "$root/web/tsconfig.json" --outDir "$site"
 cp "$root/web/index.html" "$root/web/styles.css" \
-  "$wasm_build/web/scheme.js" "$wasm_build/web/scheme.wasm" "$site/"
+  "$wasm_build/scheme.js" "$wasm_build/scheme.wasm" "$site/"

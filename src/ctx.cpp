@@ -12,7 +12,7 @@
 #include <utility>
 
 // each guarded level spans several C stack frames; 1000 is calibrated for
-// default 8MB stacks (see web/CMakeLists.txt)
+// default 8MB stacks (see CMakeLists.txt)
 static constexpr size_t max_depth = 1000;
 
 namespace {

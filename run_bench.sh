@@ -3,7 +3,7 @@
 passed=0
 failed=0
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-scheme=${1:-$repo_dir/build/native/cli/scheme}
+scheme=${1:-$repo_dir/build/native/scheme}
 
 for bench in "$repo_dir"/bench/*.scm; do
   name=$(basename "$bench" .scm)
