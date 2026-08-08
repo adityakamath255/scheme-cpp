@@ -26,187 +26,156 @@ namespace {
 
 using Args = const std::vector<Obj> &;
 
-enum class PatternKind { Required, Optional, Rest };
-
-template <typename T> struct ObjectPattern {
-  using Value = T;
-  static constexpr PatternKind kind = PatternKind::Required;
-
-  T (Obj::*accessor)() const;
-
-  T decode(Obj obj) const {
-    try {
-      return (obj.*accessor)();
-    } catch (const SchemeError &error) {
-      throw UnattributedError(error.what());
-    }
-  }
-
-  T parse(Args raw, size_t &position) const {
-    return decode(raw[position++]);
-  }
-};
-
 template <typename T>
-ObjectPattern(T (Obj::*)() const) -> ObjectPattern<T>;
-
-struct AnyPattern {
-  using Value = Obj;
-  static constexpr PatternKind kind = PatternKind::Required;
-
-  Obj parse(Args raw, size_t &position) const { return raw[position++]; }
-};
-
-struct IndexPattern {
-  using Value = size_t;
-  static constexpr PatternKind kind = PatternKind::Required;
-
-  size_t parse(Args raw, size_t &position) const;
-};
+T decode_object(Obj obj, T (Obj::*accessor)() const) {
+  try {
+    return (obj.*accessor)();
+  } catch (const SchemeError &error) {
+    throw UnattributedError(error.what());
+  }
+}
 
 namespace arg {
 
-constexpr AnyPattern any;
-constexpr ObjectPattern number{&Obj::as_number};
-constexpr ObjectPattern character{&Obj::as_char};
-constexpr ObjectPattern symbol{&Obj::as_symbol};
-constexpr ObjectPattern string{&Obj::as_string};
-constexpr ObjectPattern pair{&Obj::as_cons};
-constexpr ObjectPattern vector{&Obj::as_vector};
-constexpr ObjectPattern error{&Obj::as_error};
-constexpr IndexPattern index;
+Obj any(Obj obj) { return obj; }
 
+Number number(Obj obj) {
+  return decode_object(obj, &Obj::as_number);
 }
 
-size_t IndexPattern::parse(Args raw, size_t &position) const {
-  auto value = arg::number.decode(raw[position++]).to_size();
+char character(Obj obj) {
+  return decode_object(obj, &Obj::as_char);
+}
+
+Symbol symbol(Obj obj) {
+  return decode_object(obj, &Obj::as_symbol);
+}
+
+String *string(Obj obj) {
+  return decode_object(obj, &Obj::as_string);
+}
+
+Cons *pair(Obj obj) {
+  return decode_object(obj, &Obj::as_cons);
+}
+
+Vector *vector(Obj obj) {
+  return decode_object(obj, &Obj::as_vector);
+}
+
+Error *error(Obj obj) {
+  return decode_object(obj, &Obj::as_error);
+}
+
+size_t index(Obj obj) {
+  auto value = number(obj).to_size();
   if (!value) {
     throw UnattributedError("expected non-negative integer");
   }
   return *value;
 }
 
-template<typename P>
-concept Pattern = requires(P pattern, Args raw, size_t &position) {
-  typename P::Value;
-  requires std::same_as<decltype(P::kind), const PatternKind>;
-  { pattern.parse(raw, position) } -> std::same_as<typename P::Value>;
-};
-
-template<typename P>
-concept RequiredPattern =
-    Pattern<P> && P::kind == PatternKind::Required;
-
-template<RequiredPattern P> struct OptionalPattern {
-  using Value = std::optional<typename P::Value>;
-  static constexpr PatternKind kind = PatternKind::Optional;
-
-  P pattern;
-
-  Value parse(Args raw, size_t &position) const {
-    if (position == raw.size()) {
-      return {};
-    }
-    return pattern.parse(raw, position);
-  }
-};
-
-template<RequiredPattern P> struct RestPattern {
-  using Value = std::vector<typename P::Value>;
-  static constexpr PatternKind kind = PatternKind::Rest;
-
-  P pattern;
-
-  Value parse(Args raw, size_t &position) const {
-    Value values;
-    values.reserve(raw.size() - position);
-    while (position < raw.size()) {
-      values.push_back(pattern.parse(raw, position));
-    }
-    return values;
-  }
-};
-
-template<RequiredPattern P>
-OptionalPattern<P> optional(P pattern) {
-  return {pattern};
 }
 
-template<RequiredPattern P>
-RestPattern<P> rest(P pattern) {
-  return {pattern};
-}
+template <typename D>
+concept Decoder = std::invocable<const D &, Obj>;
 
-consteval bool valid_transition(PatternKind previous, PatternKind next) {
-  switch (next) {
-  case PatternKind::Required:
-    return previous == PatternKind::Required;
-  case PatternKind::Optional:
-    return previous != PatternKind::Rest;
-  case PatternKind::Rest:
-    return previous == PatternKind::Required;
-  }
-  std::unreachable();
-}
+template <Decoder D>
+using Decoded = std::invoke_result_t<const D &, Obj>;
 
-template<Pattern... Patterns> consteval bool valid_patterns() {
-  if constexpr (sizeof...(Patterns) == 0) {
-    return true;
-  } else {
-    PatternKind state = PatternKind::Required;
-    bool valid = true;
-    ((valid = valid && valid_transition(state, Patterns::kind),
-      state = Patterns::kind),
-     ...);
-    return valid;
-  }
-}
-
-template<Pattern... Patterns>
-  requires(valid_patterns<Patterns...>())
-auto match(Args raw, Patterns... patterns) {
-  constexpr size_t min =
-      (size_t{0} + ... + (Patterns::kind == PatternKind::Required ? 1 : 0));
-  constexpr bool unbounded =
-      ((Patterns::kind == PatternKind::Rest) || ... || false);
-  auto arity = unbounded ? Arity::at_least(min)
-                         : Arity::between(min, sizeof...(Patterns));
+void require_arity(Args raw, Arity arity) {
   if (auto error = arity.mismatch(raw.size())) {
     throw UnattributedError(*error);
   }
-
-  size_t position = 0;
-  if constexpr (sizeof...(Patterns) == 0) {
-    return;
-  } else if constexpr (sizeof...(Patterns) == 1) {
-    return (patterns.parse(raw, position), ...);
-  } else {
-    return std::tuple{patterns.parse(raw, position)...};
-  }
 }
 
-class Installer {
-  Ctx &ctx;
+void match(Args raw) {
+  require_arity(raw, Arity::exactly(0));
+}
 
-public:
-  explicit Installer(Ctx &ctx) : ctx{ctx} {}
+template <Decoder D>
+auto match(Args raw, D decoder) -> Decoded<D> {
+  require_arity(raw, Arity::exactly(1));
+  return decoder(raw.front());
+}
 
-  template<typename Implementation>
-    requires std::is_empty_v<Implementation> &&
-             std::copy_constructible<Implementation> &&
-             std::is_invocable_r_v<Obj, Implementation, Args, Ctx &>
-  void operator()(std::string_view name, Implementation implementation) const {
-    auto adapter = [name = std::string{name}, implementation](
-                       Args raw, Ctx &ctx) -> Obj {
-      try {
-        return implementation(raw, ctx);
-      } catch (const UnattributedError &error) {
-        throw SchemeError(std::format("{}: {}", name, error.what()));
-      }
-    };
-    ctx.install_builtin(name, Builtin::Fn{std::move(adapter)});
-  }
-};
+template <Decoder A, Decoder B>
+auto match(Args raw, A first, B second) {
+  require_arity(raw, Arity::exactly(2));
+  return std::pair{first(raw[0]), second(raw[1])};
+}
+
+template <Decoder A, Decoder B, Decoder C>
+auto match(Args raw, A first, B second, C third) {
+  require_arity(raw, Arity::exactly(3));
+  return std::tuple{first(raw[0]), second(raw[1]), third(raw[2])};
+}
+
+template <Decoder D>
+auto match_optional(Args raw, D decoder) {
+  require_arity(raw, Arity::between(0, 1));
+  return raw.size() == 1
+   ? std::optional<Decoded<D>>{decoder(raw.front())}
+   : std::nullopt;
+}
+
+template <Decoder A, Decoder D>
+auto match_optional(Args raw, A required, D optional) {
+  require_arity(raw, Arity::between(1, 2));
+  return std::pair{
+    required(raw[0]),
+    raw.size() == 2 
+      ? std::optional<Decoded<D>>{optional(raw[1])}
+      : std::nullopt
+  };
+}
+
+template <Decoder A, Decoder B, Decoder D>
+auto match_optional(Args raw, A first, B second, D optional) {
+  require_arity(raw, Arity::between(2, 3));
+  return std::tuple{
+    first(raw[0]), 
+    second(raw[1]),
+    raw.size() == 3 
+      ? std::optional<Decoded<D>>{optional(raw[2])}
+      : std::nullopt
+  };
+}
+
+template <Decoder D>
+auto match_many(Args raw, D decoder) {
+  return raw 
+    | std::views::transform(decoder) 
+    | std::ranges::to<std::vector<Decoded<D>>>();
+}
+
+template <Decoder D>
+auto match_nonempty(Args raw, D decoder) {
+  require_arity(raw, Arity::at_least(1));
+  return std::pair{
+    decoder(raw.front()),
+    raw 
+      | std::views::drop(1) 
+      | std::views::transform(decoder) 
+      | std::ranges::to<std::vector<Decoded<D>>>()
+  };
+}
+
+template <typename Implementation>
+  requires std::is_empty_v<Implementation> &&
+           std::copy_constructible<Implementation> &&
+           std::is_invocable_r_v<Obj, Implementation, Args, Ctx &>
+void install(Ctx &ctx, std::string_view name, Implementation implementation) {
+  auto adapter = [name = std::string{name}, implementation](
+                     Args raw, Ctx &ctx) -> Obj {
+    try {
+      return implementation(raw, ctx);
+    } catch (const UnattributedError &error) {
+      throw SchemeError(std::format("{}: {}", name, error.what()));
+    }
+  };
+  ctx.install_builtin(name, Builtin::Fn{std::move(adapter)});
+}
 
 }
 
@@ -243,15 +212,15 @@ static void require_index(size_t size, size_t index) {
 }
 
 template <auto Predicate>
-static void install_predicate(Installer install, std::string_view name) {
-  install(name, [](Args raw, Ctx &) {
+static void install_predicate(Ctx &ctx, std::string_view name) {
+  install(ctx, name, [](Args raw, Ctx &) {
     return (match(raw, arg::any).*Predicate)();
   });
 }
 
-static void install_numbers(Installer install) {
-  install("+", [](Args raw, Ctx &ctx) {
-    auto numbers = match(raw, rest(arg::number));
+static void install_numbers(Ctx &ctx) {
+  install(ctx, "+", [](Args raw, Ctx &ctx) {
+    auto numbers = match_many(raw, arg::number);
     return std::ranges::fold_left(
         numbers, Number::exact(0, ctx),
         [&ctx](Number sum, Number number) {
@@ -259,8 +228,8 @@ static void install_numbers(Installer install) {
         });
   });
 
-  install("-", [](Args raw, Ctx &ctx) {
-    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+  install(ctx, "-", [](Args raw, Ctx &ctx) {
+    auto [first, remaining] = match_nonempty(raw, arg::number);
     if (remaining.empty()) {
       return first.neg(ctx);
     }
@@ -270,8 +239,8 @@ static void install_numbers(Installer install) {
         });
   });
 
-  install("*", [](Args raw, Ctx &ctx) {
-    auto numbers = match(raw, rest(arg::number));
+  install(ctx, "*", [](Args raw, Ctx &ctx) {
+    auto numbers = match_many(raw, arg::number);
     return std::ranges::fold_left(
         numbers, Number::exact(1, ctx),
         [&ctx](Number product, Number number) {
@@ -279,8 +248,8 @@ static void install_numbers(Installer install) {
         });
   });
 
-  install("/", [](Args raw, Ctx &ctx) {
-    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+  install(ctx, "/", [](Args raw, Ctx &ctx) {
+    auto [first, remaining] = match_nonempty(raw, arg::number);
     if (remaining.empty()) {
       return Number::exact(1, ctx).div(first, ctx);
     }
@@ -290,163 +259,163 @@ static void install_numbers(Installer install) {
         });
   });
 
-  install("<", [](Args raw, Ctx &) {
-    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+  install(ctx, "<", [](Args raw, Ctx &) {
+    auto [first, remaining] = match_nonempty(raw, arg::number);
     return numeric_compare(first, remaining, [](std::partial_ordering order) {
       return order == std::partial_ordering::less;
     });
   });
-  install(">", [](Args raw, Ctx &) {
-    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+  install(ctx, ">", [](Args raw, Ctx &) {
+    auto [first, remaining] = match_nonempty(raw, arg::number);
     return numeric_compare(first, remaining, [](std::partial_ordering order) {
       return order == std::partial_ordering::greater;
     });
   });
-  install("=", [](Args raw, Ctx &) {
-    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+  install(ctx, "=", [](Args raw, Ctx &) {
+    auto [first, remaining] = match_nonempty(raw, arg::number);
     return numeric_compare(first, remaining, [](std::partial_ordering order) {
       return order == std::partial_ordering::equivalent;
     });
   });
-  install("<=", [](Args raw, Ctx &) {
-    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+  install(ctx, "<=", [](Args raw, Ctx &) {
+    auto [first, remaining] = match_nonempty(raw, arg::number);
     return numeric_compare(first, remaining, [](std::partial_ordering order) {
       return order == std::partial_ordering::less ||
              order == std::partial_ordering::equivalent;
     });
   });
-  install(">=", [](Args raw, Ctx &) {
-    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+  install(ctx, ">=", [](Args raw, Ctx &) {
+    auto [first, remaining] = match_nonempty(raw, arg::number);
     return numeric_compare(first, remaining, [](std::partial_ordering order) {
       return order == std::partial_ordering::greater ||
              order == std::partial_ordering::equivalent;
     });
   });
 
-  install("abs", [](Args raw, Ctx &ctx) {
+  install(ctx, "abs", [](Args raw, Ctx &ctx) {
     return match(raw, arg::number).abs(ctx);
   });
-  install("sqrt", [](Args raw, Ctx &ctx) {
+  install(ctx, "sqrt", [](Args raw, Ctx &ctx) {
     return match(raw, arg::number).sqrt(ctx);
   });
-  install("sin", [](Args raw, Ctx &) {
+  install(ctx, "sin", [](Args raw, Ctx &) {
     return std::sin(match(raw, arg::number).to_double());
   });
-  install("cos", [](Args raw, Ctx &) {
+  install(ctx, "cos", [](Args raw, Ctx &) {
     return std::cos(match(raw, arg::number).to_double());
   });
-  install("log", [](Args raw, Ctx &) {
+  install(ctx, "log", [](Args raw, Ctx &) {
     return std::log(match(raw, arg::number).to_double());
   });
-  install("expt", [](Args raw, Ctx &ctx) {
+  install(ctx, "expt", [](Args raw, Ctx &ctx) {
     auto [base, power] = match(raw, arg::number, arg::number);
     return base.expt(power, ctx);
   });
 
-  install("ceiling", [](Args raw, Ctx &) {
+  install(ctx, "ceiling", [](Args raw, Ctx &) {
     Number number = match(raw, arg::number);
     return number.is_exact()
                ? number
                : Number::inexact(std::ceil(number.to_double()));
   });
-  install("floor", [](Args raw, Ctx &) {
+  install(ctx, "floor", [](Args raw, Ctx &) {
     Number number = match(raw, arg::number);
     return number.is_exact()
                ? number
                : Number::inexact(std::floor(number.to_double()));
   });
-  install("round", [](Args raw, Ctx &) {
+  install(ctx, "round", [](Args raw, Ctx &) {
     Number number = match(raw, arg::number);
     return number.is_exact()
                ? number
                : Number::inexact(std::round(number.to_double()));
   });
 
-  install("max", [](Args raw, Ctx &) {
-    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+  install(ctx, "max", [](Args raw, Ctx &) {
+    auto [first, remaining] = match_nonempty(raw, arg::number);
     return minmax(first, remaining, std::partial_ordering::greater);
   });
-  install("min", [](Args raw, Ctx &) {
-    auto [first, remaining] = match(raw, arg::number, rest(arg::number));
+  install(ctx, "min", [](Args raw, Ctx &) {
+    auto [first, remaining] = match_nonempty(raw, arg::number);
     return minmax(first, remaining, std::partial_ordering::less);
   });
 
-  install("quotient", [](Args raw, Ctx &ctx) {
+  install(ctx, "quotient", [](Args raw, Ctx &ctx) {
     auto [dividend, divisor] = match(raw, arg::number, arg::number);
     return dividend.quotient(divisor, ctx);
   });
-  install("remainder", [](Args raw, Ctx &ctx) {
+  install(ctx, "remainder", [](Args raw, Ctx &ctx) {
     auto [dividend, divisor] = match(raw, arg::number, arg::number);
     return dividend.remainder(divisor, ctx);
   });
-  install("modulo", [](Args raw, Ctx &ctx) {
+  install(ctx, "modulo", [](Args raw, Ctx &ctx) {
     auto [dividend, divisor] = match(raw, arg::number, arg::number);
     return dividend.modulo(divisor, ctx);
   });
 
-  install("even?", [](Args raw, Ctx &) {
+  install(ctx, "even?", [](Args raw, Ctx &) {
     return match(raw, arg::number).is_even();
   });
-  install("odd?", [](Args raw, Ctx &) {
+  install(ctx, "odd?", [](Args raw, Ctx &) {
     return !match(raw, arg::number).is_even();
   });
-  install("zero?", [](Args raw, Ctx &) {
+  install(ctx, "zero?", [](Args raw, Ctx &) {
     return match(raw, arg::number).is_zero();
   });
-  install("positive?", [](Args raw, Ctx &ctx) {
+  install(ctx, "positive?", [](Args raw, Ctx &ctx) {
     return match(raw, arg::number).compare(Number::exact(0, ctx)) ==
            std::partial_ordering::greater;
   });
-  install("negative?", [](Args raw, Ctx &ctx) {
+  install(ctx, "negative?", [](Args raw, Ctx &ctx) {
     return match(raw, arg::number).compare(Number::exact(0, ctx)) ==
            std::partial_ordering::less;
   });
-  install("exact?", [](Args raw, Ctx &) {
+  install(ctx, "exact?", [](Args raw, Ctx &) {
     return match(raw, arg::number).is_exact();
   });
-  install("inexact?", [](Args raw, Ctx &) {
+  install(ctx, "inexact?", [](Args raw, Ctx &) {
     return !match(raw, arg::number).is_exact();
   });
 
   auto exact = [](Args raw, Ctx &ctx) {
     return match(raw, arg::number).to_exact(ctx);
   };
-  install("exact", exact);
-  install("inexact->exact", exact);
+  install(ctx, "exact", exact);
+  install(ctx, "inexact->exact", exact);
 
   auto inexact = [](Args raw, Ctx &) {
     return match(raw, arg::number).to_inexact();
   };
-  install("inexact", inexact);
-  install("exact->inexact", inexact);
+  install(ctx, "inexact", inexact);
+  install(ctx, "exact->inexact", inexact);
 }
 
-static void install_objects(Installer install) {
-  install_predicate<&Obj::is_null>(install, "null?");
-  install_predicate<&Obj::is_bool>(install, "boolean?");
-  install_predicate<&Obj::is_number>(install, "number?");
-  install("integer?", [](Args raw, Ctx &) {
+static void install_objects(Ctx &ctx) {
+  install_predicate<&Obj::is_null>(ctx, "null?");
+  install_predicate<&Obj::is_bool>(ctx, "boolean?");
+  install_predicate<&Obj::is_number>(ctx, "number?");
+  install(ctx, "integer?", [](Args raw, Ctx &) {
     Obj value = match(raw, arg::any);
     auto number = value.try_as_number();
     return number && number->is_integer();
   });
-  install_predicate<&Obj::is_cons>(install, "pair?");
-  install_predicate<&Obj::is_symbol>(install, "symbol?");
-  install_predicate<&Obj::is_string>(install, "string?");
-  install("procedure?", [](Args raw, Ctx &) {
+  install_predicate<&Obj::is_cons>(ctx, "pair?");
+  install_predicate<&Obj::is_symbol>(ctx, "symbol?");
+  install_predicate<&Obj::is_string>(ctx, "string?");
+  install(ctx, "procedure?", [](Args raw, Ctx &) {
     Obj value = match(raw, arg::any);
     return value.is_procedure() || value.is_builtin();
   });
-  install_predicate<&Obj::is_list>(install, "list?");
-  install_predicate<&Obj::is_void>(install, "void?");
-  install_predicate<&Obj::is_promise>(install, "promise?");
-  install_predicate<&Obj::is_char>(install, "char?");
-  install_predicate<&Obj::is_vector>(install, "vector?");
-  install_predicate<&Obj::is_error>(install, "error-object?");
-  install("not", [](Args raw, Ctx &) {
+  install_predicate<&Obj::is_list>(ctx, "list?");
+  install_predicate<&Obj::is_void>(ctx, "void?");
+  install_predicate<&Obj::is_promise>(ctx, "promise?");
+  install_predicate<&Obj::is_char>(ctx, "char?");
+  install_predicate<&Obj::is_vector>(ctx, "vector?");
+  install_predicate<&Obj::is_error>(ctx, "error-object?");
+  install(ctx, "not", [](Args raw, Ctx &) {
     return match(raw, arg::any).is_false();
   });
-  install("void", [](Args raw, Ctx &) {
+  install(ctx, "void", [](Args raw, Ctx &) {
     match(raw);
     return Void{};
   });
@@ -455,30 +424,31 @@ static void install_objects(Installer install) {
     auto [a, b] = match(raw, arg::any, arg::any);
     return a.eqv(b);
   };
-  install("eq?", eq);
-  install("eqv?", eq);
+  install(ctx, "eq?", eq);
+  install(ctx, "eqv?", eq);
 
-  install("equal?", [](Args raw, Ctx &) {
+  install(ctx, "equal?", [](Args raw, Ctx &) {
     auto [a, b] = match(raw, arg::any, arg::any);
     return a.equals(b);
   });
 }
 
-static void install_lists(Installer install) {
-  install("car", [](Args raw, Ctx &) {
+static void install_lists(Ctx &ctx) {
+  install(ctx, "car", [](Args raw, Ctx &) {
     return match(raw, arg::pair)->car;
   });
-  install("cdr", [](Args raw, Ctx &) {
+  install(ctx, "cdr", [](Args raw, Ctx &) {
     return match(raw, arg::pair)->cdr;
   });
-  install("cons", [](Args raw, Ctx &ctx) {
+  install(ctx, "cons", [](Args raw, Ctx &ctx) {
     auto [car, cdr] = match(raw, arg::any, arg::any);
     return ctx.alloc<Cons>(car, cdr);
   });
-  install("list", [](Args raw, Ctx &ctx) {
-    return list_from(match(raw, rest(arg::any)), ctx);
+  install(ctx, "list", [](Args raw, Ctx &ctx) {
+    auto values = match_many(raw, arg::any);
+    return list_from(values, ctx);
   });
-  install("length", [](Args raw, Ctx &ctx) -> Obj {
+  install(ctx, "length", [](Args raw, Ctx &ctx) -> Obj {
     Obj list = match(raw, arg::any);
     if (!list.is_null() && !list.is_cons()) {
       throw UnattributedError("expected list, got " + list.type_name());
@@ -490,45 +460,45 @@ static void install_lists(Installer install) {
     return Number::exact(
         static_cast<int64_t>(parts.elements.size()), ctx);
   });
-  install("list-ref", [](Args raw, Ctx &) -> Obj {
+  install(ctx, "list-ref", [](Args raw, Ctx &) -> Obj {
     auto [pair, index] = match(raw, arg::pair, arg::index);
     List list{pair};
     require_index(list.elements.size(), index);
     return list.elements[index];
   });
-  install("set-car!", [](Args raw, Ctx &) {
+  install(ctx, "set-car!", [](Args raw, Ctx &) {
     auto [pair, value] = match(raw, arg::pair, arg::any);
     pair->car = value;
     return Void{};
   });
-  install("set-cdr!", [](Args raw, Ctx &) {
+  install(ctx, "set-cdr!", [](Args raw, Ctx &) {
     auto [pair, value] = match(raw, arg::pair, arg::any);
     pair->cdr = value;
     return Void{};
   });
 }
 
-static void install_strings(Installer install) {
-  install("string-length", [](Args raw, Ctx &ctx) {
+static void install_strings(Ctx &ctx) {
+  install(ctx, "string-length", [](Args raw, Ctx &ctx) {
     auto string = match(raw, arg::string);
     return Number::exact(static_cast<int64_t>(string->data.size()), ctx);
   });
-  install("string-ref", [](Args raw, Ctx &) -> Obj {
+  install(ctx, "string-ref", [](Args raw, Ctx &) -> Obj {
     auto [string, index] = match(raw, arg::string, arg::index);
     require_index(string->data.size(), index);
     return string->data[index];
   });
-  install("substring", [](Args raw, Ctx &ctx) -> Obj {
+  install(ctx, "substring", [](Args raw, Ctx &ctx) -> Obj {
     auto [string, start, requested_end] =
-        match(raw, arg::string, arg::index, optional(arg::index));
+        match_optional(raw, arg::string, arg::index, arg::index);
     size_t end = requested_end.value_or(string->data.size());
     if (start > end || end > string->data.size()) {
       throw UnattributedError("index out of range");
     }
     return ctx.alloc<String>(string->data.substr(start, end - start));
   });
-  install("string-append", [](Args raw, Ctx &ctx) {
-    auto strings = match(raw, rest(arg::string));
+  install(ctx, "string-append", [](Args raw, Ctx &ctx) {
+    auto strings = match_many(raw, arg::string);
     return ctx.alloc<String>(std::ranges::to<std::string>(
         strings | std::views::transform([](String *string)
                                             -> const std::string & {
@@ -536,44 +506,45 @@ static void install_strings(Installer install) {
         }) |
         std::views::join));
   });
-  install("string=?", [](Args raw, Ctx &) {
+  install(ctx, "string=?", [](Args raw, Ctx &) {
     auto [a, b] = match(raw, arg::string, arg::string);
     return a->data == b->data;
   });
 
-  install("char=?", [](Args raw, Ctx &) {
+  install(ctx, "char=?", [](Args raw, Ctx &) {
     auto [a, b] = match(raw, arg::character, arg::character);
     return a == b;
   });
-  install("char->integer", [](Args raw, Ctx &ctx) {
-    auto character = static_cast<unsigned char>(match(raw, arg::character));
+  install(ctx, "char->integer", [](Args raw, Ctx &ctx) {
+    auto character =
+        static_cast<unsigned char>(match(raw, arg::character));
     return Number::exact(static_cast<int64_t>(character), ctx);
   });
-  install("integer->char", [](Args raw, Ctx &) -> Obj {
+  install(ctx, "integer->char", [](Args raw, Ctx &) -> Obj {
     size_t value = match(raw, arg::index);
     if (value > std::numeric_limits<unsigned char>::max()) {
       throw UnattributedError("value out of range");
     }
     return static_cast<char>(static_cast<unsigned char>(value));
   });
-  install("string->list", [](Args raw, Ctx &ctx) {
+  install(ctx, "string->list", [](Args raw, Ctx &ctx) {
     return list_from(match(raw, arg::string)->data, ctx);
   });
-  install("list->string", [](Args raw, Ctx &ctx) -> Obj {
+  install(ctx, "list->string", [](Args raw, Ctx &ctx) -> Obj {
     List list{match(raw, arg::any)};
     if (!list.proper()) {
       throw UnattributedError("expected proper list");
     }
     return ctx.alloc<String>(std::ranges::to<std::string>(
         list.elements | std::views::transform([](Obj value) {
-          return arg::character.decode(value);
+          return arg::character(value);
         })));
   });
 
-  install("number->string", [](Args raw, Ctx &ctx) {
+  install(ctx, "number->string", [](Args raw, Ctx &ctx) {
     return ctx.alloc<String>(match(raw, arg::number).to_string());
   });
-  install("string->number", [](Args raw, Ctx &ctx) -> Obj {
+  install(ctx, "string->number", [](Args raw, Ctx &ctx) -> Obj {
     auto string = match(raw, arg::string);
     try {
       return Number::parse(string->data, ctx);
@@ -581,29 +552,29 @@ static void install_strings(Installer install) {
       return false;
     }
   });
-  install("symbol->string", [](Args raw, Ctx &ctx) {
+  install(ctx, "symbol->string", [](Args raw, Ctx &ctx) {
     return ctx.alloc<String>(match(raw, arg::symbol).name());
   });
-  install("string->symbol", [](Args raw, Ctx &ctx) {
+  install(ctx, "string->symbol", [](Args raw, Ctx &ctx) {
     return ctx.intern(match(raw, arg::string)->data);
   });
 }
 
-static void install_io(Installer install) {
-  install("display", [](Args raw, Ctx &ctx) {
+static void install_io(Ctx &ctx) {
+  install(ctx, "display", [](Args raw, Ctx &ctx) {
     ctx.output(match(raw, arg::any).to_display());
     return Void{};
   });
-  install("write", [](Args raw, Ctx &ctx) {
+  install(ctx, "write", [](Args raw, Ctx &ctx) {
     ctx.output(match(raw, arg::any).to_write());
     return Void{};
   });
-  install("newline", [](Args raw, Ctx &ctx) {
+  install(ctx, "newline", [](Args raw, Ctx &ctx) {
     match(raw);
     ctx.output("\n");
     return Void{};
   });
-  install("read", [](Args raw, Ctx &ctx) -> Obj {
+  install(ctx, "read", [](Args raw, Ctx &ctx) -> Obj {
     match(raw);
     std::string input;
     while (true) {
@@ -624,37 +595,38 @@ static void install_io(Installer install) {
   });
 }
 
-static void install_vectors(Installer install) {
-  install("vector", [](Args raw, Ctx &ctx) {
-    return ctx.alloc<Vector>(match(raw, rest(arg::any)));
+static void install_vectors(Ctx &ctx) {
+  install(ctx, "vector", [](Args raw, Ctx &ctx) {
+    auto values = match_many(raw, arg::any);
+    return ctx.alloc<Vector>(std::move(values));
   });
-  install("make-vector", [](Args raw, Ctx &ctx) {
+  install(ctx, "make-vector", [](Args raw, Ctx &ctx) {
     auto [size, requested_fill] =
-        match(raw, arg::index, optional(arg::any));
+        match_optional(raw, arg::index, arg::any);
     Obj fill =
         requested_fill.value_or(Obj(Number::exact(0, ctx)));
     return ctx.alloc<Vector>(std::vector<Obj>(size, fill));
   });
-  install("vector-ref", [](Args raw, Ctx &) -> Obj {
+  install(ctx, "vector-ref", [](Args raw, Ctx &) -> Obj {
     auto [vector, index] = match(raw, arg::vector, arg::index);
     require_index(vector->data.size(), index);
     return vector->data[index];
   });
-  install("vector-set!", [](Args raw, Ctx &) {
+  install(ctx, "vector-set!", [](Args raw, Ctx &) {
     auto [vector, index, value] =
         match(raw, arg::vector, arg::index, arg::any);
     require_index(vector->data.size(), index);
     vector->data[index] = value;
     return Void{};
   });
-  install("vector-length", [](Args raw, Ctx &ctx) {
+  install(ctx, "vector-length", [](Args raw, Ctx &ctx) {
     auto vector = match(raw, arg::vector);
     return Number::exact(static_cast<int64_t>(vector->data.size()), ctx);
   });
-  install("vector->list", [](Args raw, Ctx &ctx) {
+  install(ctx, "vector->list", [](Args raw, Ctx &ctx) {
     return list_from(match(raw, arg::vector)->data, ctx);
   });
-  install("list->vector", [](Args raw, Ctx &ctx) -> Obj {
+  install(ctx, "list->vector", [](Args raw, Ctx &ctx) -> Obj {
     List list{match(raw, arg::any)};
     if (!list.proper()) {
       throw UnattributedError("expected proper list");
@@ -663,34 +635,33 @@ static void install_vectors(Installer install) {
   });
 }
 
-static void install_other(Installer install) {
-  install("force", [](Args raw, Ctx &ctx) {
+static void install_other(Ctx &ctx) {
+  install(ctx, "force", [](Args raw, Ctx &ctx) {
     Obj value = match(raw, arg::any);
     if (Promise *promise = value.try_as_promise()) {
       return promise->force(ctx);
     }
     return value;
   });
-  install("error", [](Args raw, Ctx &ctx) -> Obj {
-    auto [message, irritants] = match(raw, arg::any, rest(arg::any));
+  install(ctx, "error", [](Args raw, Ctx &ctx) -> Obj {
+    auto [message, irritants] = match_nonempty(raw, arg::any);
     auto error = ctx.alloc<Error>(message.to_display(),
                                       list_from(irritants, ctx));
     throw SchemeError::raised(error);
   });
-  install("raise", [](Args raw, Ctx &) -> Obj {
+  install(ctx, "raise", [](Args raw, Ctx &) -> Obj {
     throw SchemeError::raised(match(raw, arg::any));
   });
-  install("error-object-message", [](Args raw,
-                                                Ctx &ctx) {
+  install(ctx, "error-object-message", [](Args raw, Ctx &ctx) {
     return ctx.alloc<String>(match(raw, arg::error)->message);
   });
-  install("error-object-irritants", [](Args raw, Ctx &) {
+  install(ctx, "error-object-irritants", [](Args raw, Ctx &) {
     return match(raw, arg::error)->irritants;
   });
-  install("eval", [](Args raw, Ctx &ctx) {
+  install(ctx, "eval", [](Args raw, Ctx &ctx) {
     return ctx.eval_global(match(raw, arg::any));
   });
-  install("load", [](Args raw, Ctx &ctx) -> Obj {
+  install(ctx, "load", [](Args raw, Ctx &ctx) -> Obj {
     const std::string &path = match(raw, arg::string)->data;
     std::ifstream file(path);
     if (!file) {
@@ -701,23 +672,22 @@ static void install_other(Installer install) {
     ctx.execute(buffer.str());
     return Void{};
   });
-  install("file-exists?", [](Args raw, Ctx &) {
+  install(ctx, "file-exists?", [](Args raw, Ctx &) {
     return std::ifstream(match(raw, arg::string)->data).good();
   });
-  install("exit", [](Args raw, Ctx &) -> Obj {
-    auto code = match(raw, optional(arg::index));
+  install(ctx, "exit", [](Args raw, Ctx &) -> Obj {
+    auto code = match_optional(raw, arg::index);
     throw scheme::ExitRequest(code ? static_cast<int>(*code) : 0);
   });
 }
 
 void install_builtins(Ctx &ctx) {
-  Installer install{ctx};
-  install_numbers(install);
-  install_objects(install);
-  install_lists(install);
-  install_strings(install);
-  install_vectors(install);
-  install_io(install);
-  install_other(install);
+  install_numbers(ctx);
+  install_objects(ctx);
+  install_lists(ctx);
+  install_strings(ctx);
+  install_vectors(ctx);
+  install_io(ctx);
+  install_other(ctx);
   ctx.install_builtin("apply", Builtin::Apply{});
 }
