@@ -19,6 +19,14 @@
 
   (assert "let" 3 (let ((x 1) (y 2)) (+ x y)))
   (assert "let*" 3 (let* ((x 1) (y (+ x 1))) (+ x y)))
+  (assert "let* nested scopes" 1
+          (let* ((x 1)
+                 (captured (lambda () x))
+                 (x 2))
+            (captured)))
+  (define let-star-outer 1)
+  (let* () (define let-star-outer 2))
+  (assert "empty let* scope" 1 let-star-outer)
   (assert "letrec mutual" #t
           (letrec ((even? (lambda (n) (if (= n 0) #t (odd? (- n 1)))))
                    (odd? (lambda (n) (if (= n 0) #f (even? (- n 1))))))

@@ -239,14 +239,6 @@ std::vector<Binding> Parser::parse_bindings(Obj datum,
   return bindings;
 }
 
-const LetExpr *Parser::parse_ordinary_let(Obj rest, LetKind kind,
-                                          std::string_view name) {
-  auto arguments = form_arguments(rest, name, Arity::at_least(2));
-  std::vector<Binding> bindings = parse_bindings(arguments[0], name);
-  const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
-  return ctx.alloc<LetExpr>(kind, std::move(bindings), body);
-}
-
 const Expr *Parser::parse_let(Obj rest) {
   auto arguments = form_arguments(rest, "let", Arity::at_least(2));
   auto name = arguments.front().try_as_symbol();
@@ -254,8 +246,7 @@ const Expr *Parser::parse_let(Obj rest) {
     std::vector<Binding> bindings =
         parse_bindings(arguments.front(), "let");
     const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
-    return ctx.alloc<LetExpr>(LetKind::Plain, std::move(bindings),
-                                  body);
+    return ctx.alloc<LetExpr>(std::move(bindings), body);
   }
 
   if (arguments.size() < 3) {
@@ -275,18 +266,32 @@ const Expr *Parser::parse_let(Obj rest) {
 
   const Expr *lambda = ctx.alloc<LambdaExpr>(
       Formals{std::move(parameters), std::nullopt}, body);
-  const Expr *procedure = ctx.alloc<LetExpr>(
-      LetKind::Rec, std::vector<Binding>{{*name, lambda}},
+  const Expr *procedure = ctx.alloc<LetRecExpr>(
+      std::vector<Binding>{{*name, lambda}},
       ctx.alloc<ReferenceExpr>(*name));
   return ctx.alloc<CallExpr>(procedure, std::move(initializers));
 }
 
 const Expr *Parser::parse_let_star(Obj rest) {
-  return parse_ordinary_let(rest, LetKind::Star, "let*");
+  auto arguments = form_arguments(rest, "let*", Arity::at_least(2));
+  std::vector<Binding> bindings = parse_bindings(arguments[0], "let*");
+  const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
+  if (bindings.empty()) {
+    return ctx.alloc<LetExpr>(std::move(bindings), body);
+  }
+  for (auto binding = bindings.rbegin(); binding != bindings.rend();
+       ++binding) {
+    body = ctx.alloc<LetExpr>(std::vector<Binding>{*binding}, body);
+  }
+  return body;
 }
 
 const Expr *Parser::parse_let_rec(Obj rest) {
-  return parse_ordinary_let(rest, LetKind::Rec, "letrec");
+  auto arguments = form_arguments(rest, "letrec", Arity::at_least(2));
+  std::vector<Binding> bindings =
+      parse_bindings(arguments[0], "letrec");
+  const Expr *body = parse_sequence(std::span{arguments}.subspan(1));
+  return ctx.alloc<LetRecExpr>(std::move(bindings), body);
 }
 
 const Expr *Parser::parse_when(Obj rest) {

@@ -176,31 +176,40 @@ void CallExpr::trace(std::vector<const HeapEntity *> &worklist) const {
   trace_expressions(arguments, worklist);
 }
 
-LetExpr::LetExpr(LetKind kind, std::vector<Binding> bindings,
-                 const Expr *body)
-    : kind{kind}, bindings{std::move(bindings)}, body{body} {}
+LetExpr::LetExpr(std::vector<Binding> bindings, const Expr *body)
+    : bindings{std::move(bindings)}, body{body} {}
 
 EvalResult LetExpr::eval(Env &env, Ctx &ctx) const {
   Env &local = *ctx.alloc<Env>(&env);
-  if (kind == LetKind::Rec) {
-    for (const auto &binding : bindings) {
-      local.define(binding.name, Void{});
-    }
-  }
-
-  Env &initializer_env = kind == LetKind::Plain ? env : local;
   for (const auto &binding : bindings) {
-    Obj value = ctx.eval(binding.initializer, initializer_env);
-    if (kind == LetKind::Rec) {
-      local.set(binding.name, value);
-    } else {
-      local.define(binding.name, value);
-    }
+    local.define(binding.name, ctx.eval(binding.initializer, env));
   }
   return TailCall{body, local};
 }
 
 void LetExpr::trace(std::vector<const HeapEntity *> &worklist) const {
+  for (const auto &binding : bindings) {
+    trace_expression(binding.initializer, worklist);
+  }
+  trace_expression(body, worklist);
+}
+
+LetRecExpr::LetRecExpr(std::vector<Binding> bindings, const Expr *body)
+    : bindings{std::move(bindings)}, body{body} {}
+
+EvalResult LetRecExpr::eval(Env &env, Ctx &ctx) const {
+  Env &local = *ctx.alloc<Env>(&env);
+  for (const auto &binding : bindings) {
+    local.define(binding.name, Void{});
+  }
+  for (const auto &binding : bindings) {
+    local.define(binding.name, ctx.eval(binding.initializer, local));
+  }
+  return TailCall{body, local};
+}
+
+void LetRecExpr::trace(
+    std::vector<const HeapEntity *> &worklist) const {
   for (const auto &binding : bindings) {
     trace_expression(binding.initializer, worklist);
   }

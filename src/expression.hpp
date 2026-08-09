@@ -108,21 +108,28 @@ public:
   void trace(std::vector<const HeapEntity *> &) const override;
 };
 
-enum class LetKind { Plain, Star, Rec };
-
 struct Binding {
   Symbol name;
   const Expr *initializer;
 };
 
 class LetExpr final : public Expr {
-  const LetKind kind;
   const std::vector<Binding> bindings;
   const Expr *const body;
 
 public:
-  LetExpr(LetKind kind, std::vector<Binding> bindings,
-          const Expr *body);
+  LetExpr(std::vector<Binding> bindings, const Expr *body);
+
+  EvalResult eval(Env &, Ctx &) const override;
+  void trace(std::vector<const HeapEntity *> &) const override;
+};
+
+class LetRecExpr final : public Expr {
+  const std::vector<Binding> bindings;
+  const Expr *const body;
+
+public:
+  LetRecExpr(std::vector<Binding> bindings, const Expr *body);
 
   EvalResult eval(Env &, Ctx &) const override;
   void trace(std::vector<const HeapEntity *> &) const override;

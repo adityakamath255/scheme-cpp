@@ -40,7 +40,6 @@ class Parser {
 
   const Expr *parse_sequence(std::span<const Obj>);
   std::vector<Binding> parse_bindings(Obj, std::string_view);
-  const LetExpr *parse_ordinary_let(Obj, LetKind, std::string_view);
   const CondExpr *parse_cond_clauses(Obj);
   const QuasiquoteTemplate *compile_quasiquote(Obj, size_t);
   QuasiquoteElement compile_quasiquote_element(Obj, size_t);
