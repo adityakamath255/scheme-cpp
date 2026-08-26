@@ -1,41 +1,39 @@
 # scheme-cpp
 
-A Scheme interpreter in C++23. Evaluates S-expressions directly, with tail call
-optimization via trampolining, a mark-and-sweep garbage collector, and symbol
-interning.
+`scheme-cpp` is a C++23 interpreter for an R7RS-inspired subset of Scheme. It is available as a native CLI, an embeddable static library, and a [WebAssembly application](https://adityakamath255.github.io/scheme-cpp). It supports proper tail calls, arbitrary-precision integers, mark-and-sweep garbage collection, and lazy streams.
 
-## Building
+## Running locally
 
-Requires CMake 3.16+ and a C++23 compiler.
+Building requires CMake 3.20+ and a C++23 compiler.
 
 ```bash
 cmake -S . -B build/native
 cmake --build build/native
+
+./build/native/scheme              # enter the REPL directly
+./build/native/scheme file.scm     # run a file and exit
+./build/native/scheme -i file.scm  # run a file and then enter the REPL
 ```
 
-The binary is `build/native/scheme`.
-
-## Usage
+Input can also be piped through standard input:
 
 ```bash
-./build/native/scheme              # start the REPL
-./build/native/scheme file.scm     # run a file and exit
-./build/native/scheme -i file.scm  # run a file, then enter the REPL
+echo '(+ 1 2)' | ./build/native/scheme
 ```
 
-With no file on a terminal it starts the REPL. Piped on stdin
-(`echo '(+ 1 2)' | ./build/native/scheme`) it runs the input and exits.
-`-i` (or `--interactive`) keeps the REPL open after a file.
+The REPL supports:
 
-The REPL supports multi-line input (brackets are tracked across lines), line
-editing, and history via
-[replxx](https://github.com/AmokHuginnsson/replxx). Ctrl+D exits. Ctrl+C clears
-the current input.
+- Multi-line input, with brackets tracked across lines.
+- Line editing.
+- History via [replxx](https://github.com/AmokHuginnsson/replxx).
+- Clearing the input via Ctrl+C.
+- Exiting with Ctrl+D.
 
 ## API
 
-The CLI and WebAssembly frontends use the static library defined in the root
-CMake project. Its public API is `include/scheme/session.hpp`:
+The interpreter is a static library whose interface is defined in `include/scheme/session.hpp`. Both the CLI and WebAssembly frontends use this library. Applications can embed the library, provide their own interface, and handle output, results, and exit requests without depending on the CLI.
+
+For example:
 
 ```cpp
 #include <scheme/session.hpp>
@@ -53,286 +51,97 @@ int main() {
 }
 ```
 
-`Session::run` accepts incomplete input and reports how many source bytes it
-consumed. `Session::execute` rejects incomplete input. Events are emitted
-synchronously, and definitions persist for the lifetime of a session. A
-session cannot be called recursively from its own event callback. Evaluation
-failures throw `scheme::EvaluationError`; the Scheme `exit` procedure throws
-`scheme::ExitRequest`, leaving process termination to the host application.
+- `Session::run` accepts incomplete input and reports how many source bytes it consumed.
+- `Session::execute` rejects incomplete input.
+- Events are emitted synchronously, and definitions persist for the lifetime of a session.
+- A session cannot be called recursively from its own event callback.
+- Evaluation failures throw `scheme::EvaluationError`.
+- The Scheme `exit` procedure throws `scheme::ExitRequest`, leaving process termination to the host application.
 
-## Web
+## Implementation
 
-The same interpreter runs in the browser, compiled to WebAssembly:
-<https://adityakamath255.github.io/scheme-cpp/>
+A `Session` owns a `Ctx`, which owns the global environment, managed heap, interned symbols, macro table, and execution state.
 
-The `src/` sources compile to wasm via Embind. `web/main.cpp` wraps the same
-`scheme::Session` API as the terminal. `web/index.html` is a two-pane
-playground: a code editor on the left, results on the right, run with the
-button or Ctrl/Cmd+Enter. The program persists in `localStorage`, the split
-between the panes is draggable, "Copy link" encodes the program into a
-shareable URL, and each run reports its evaluation time. A session keeps its
-definitions across runs; "Reset session" starts fresh. A GitHub Actions
-workflow (`.github/workflows/pages.yml`) builds with emscripten and deploys to
-GitHub Pages on every push to `main`.
+The CLI, WebAssembly frontend, or embedding application passes source text to a `Session`. The session delegates execution to `Ctx::run` and emits `Output` and `Result` events through the host-provided callback.
 
-Building the wasm locally needs the [emscripten SDK](https://emscripten.org)
-and Node.js:
+The main execution path is:
 
-```bash
-web/build.sh
+```text
+source text
+-> lexer
+-> reader
+-> datum (Obj)
+-> parsing and macro expansion
+-> expression (Expr)
+-> evaluator and trampoline
+-> value (Obj)
+-> Result event (for non-void values)
 ```
 
-The site is written to `build/site`. Run `web/dev.sh` to build and serve it at
-<http://localhost:8137>.
+Procedural macro expansion can re-enter the evaluator. Procedures such as `display` and `write` emit `Output` events during evaluation rather than at the end of the pipeline.
 
-## What's implemented
+Scheme data and evaluated values are represented by `Obj`, which wraps a `std::variant`. `Number` separately wraps fixnums, bignums, and inexact doubles. A bignum never stores a value representable as a fixnum. Fixnums range from `-(2^63) + 1` through `2^63 - 1`; the exclusion of `-(2^63)` keeps negation and absolute value closed over fixnums. Exact integers outside that range use heap-allocated [LibTomMath](https://github.com/libtom/libtommath) bignums. Bignum results convert back to fixnums when they fit.
+
+Expression evaluation returns either a value or a `TailCall`. A trampoline executes tail calls without growing the C stack.
+
+The runtime uses non-moving mark-and-sweep garbage collection. The global environment and macro table form the root set. Collection runs between top-level forms when the managed heap exceeds its threshold. After collection, the threshold becomes twice the surviving object count.
+
+Symbols are interned using a `std::unordered_set<std::string>` for the lifetime of the session. Equal symbol names therefore share one stored string and can be compared by identity.
+
+## Features
 
 ### Special forms
 
-`define`, `lambda`, `if`, `cond`, `case`, `when`, `unless`, `let`, `let*`,
-`letrec`, `set!`, `begin`, `and`, `or`, `quote`, `quasiquote`, `unquote`,
-`unquote-splicing`, `define-macro`, `delay`, `cons-stream`, `guard`
-
-`let` also supports the named form (`(let loop ((i 0)) ...)`) for tail-recursive iteration.
-
-`and` and `or` return the deciding value, not a boolean: `(and 1 2 3)` returns
-`3`, `(or #f 42)` returns `42`. `cond` clauses with no body return the test
-value: `(cond (5))` returns `5`. `cond` supports `=>` clauses, which pass the
-test value to a receiver procedure: `(cond ((assv 'b alist) => cadr))`. The
-receiver call is a tail call. Quasiquote works inside vectors:
-`` `#(1 ,x 3) ``, and `unquote-splicing` (`,@`) splices a list into the
-surrounding form: `` `(1 ,@'(2 3) 4) `` returns `(1 2 3 4)`.
-
-### Macros
-
-`define-macro` defines non-hygienic, Lisp-style macros (as in Common Lisp's
-`defmacro`, not `syntax-rules`). The macro receives its arguments unevaluated,
-its body runs to produce an expansion, and that expansion is evaluated in the
-caller's environment. Quasiquote is the usual way to build the expansion:
-
-```scheme
-(define-macro (when test . body)
-  `(if ,test (begin ,@body) (void)))
-
-(define-macro (swap! a b)
-  `(let ((tmp ,a)) (set! ,a ,b) (set! ,b tmp)))
-```
-
-A symbol target binds an existing procedure as a macro:
-`(define-macro my-if (lambda (c t e) ...))`. Expansion is not hygienic, so
-identifiers introduced by the expansion (like `tmp` above) can capture or be
-captured by names at the use site.
+`define`, `lambda`, `if`, `cond` (including `=>` clauses), `case`, `when`, `unless`, `let`, named `let`, `let*`, `letrec`, `set!`, `begin`, `and`, `or`, `quote`, `quasiquote`, `unquote`, `unquote-splicing`, `define-macro`, `delay`, `cons-stream`, `guard`
 
 ### Built-in procedures
 
-Arithmetic: `+`, `-`, `*`, `/`, `abs`, `sqrt`, `sin`, `cos`, `log`, `expt`,
-`ceiling`, `floor`, `round`, `max`, `min`, `quotient`, `remainder`, `modulo`,
+- Arithmetic: `+`, `-`, `*`, `/`, `abs`, `sqrt`, `sin`, `cos`, `log`, `expt`, `ceiling`, `floor`, `round`, `max`, `min`, `quotient`, `remainder`, `modulo`,
 `even?`, `odd?`, `zero?`, `positive?`, `negative?`
-
-Exactness: `exact?`, `inexact?`, `exact`, `inexact` (aliases `inexact->exact`, `exact->inexact`)
-
-Comparison: `<`, `>`, `=`, `<=`, `>=` (all accept multiple arguments and test pairwise)
-
-Lists: `cons`, `car`, `cdr`, `list`, `length`, `list-ref`, `set-car!`, `set-cdr!`
-
-Strings: `string-length`, `string-ref`, `substring`, `string-append`, `string=?`
-
-Vectors: `vector`, `make-vector`, `vector-ref`, `vector-set!`, `vector-length`,
-`vector->list`, `list->vector`
-
-Characters: `char?`, `char=?`, `char->integer`, `integer->char`,
-`string->list`, `list->string`. `write` prints a char as `#\a` (or `#\space`,
-`#\newline`, `#\tab`, `#\return`); `display` prints the bare character.
-
-Type predicates: `null?`, `boolean?`, `number?`, `integer?`, `char?`, `pair?`,
-`symbol?`, `string?`, `procedure?`, `list?`, `vector?`, `promise?`, `void?`,
-`not`
-
-Equality: `eq?` (identity), `equal?` (structural, iterates along cdrs to avoid
-stack overflow on long lists)
-
-Conversion: `number->string`, `string->number`, `symbol->string`, `string->symbol`
-
-I/O: `display` (unquoted), `write` (quoted), `newline`, `read`
-
-Other: `error`, `raise`, `error-object?`, `error-object-message`,
-`error-object-irritants`, `eval`, `apply` (variadic:
-`(apply + 1 2 '(3 4))` works), `force`, `void`, `load`, `file-exists?`, `exit`
-
-### Errors
-
-`error` raises an error object carrying a message and a list of irritants;
-`raise` raises any value as-is. `guard` catches, R7RS-style: the body runs, and
-if something is raised, the variable is bound to it and the clauses are tried
-like `cond` clauses (including `else` and `=>`); if none matches, the value is
-re-raised to the next guard out.
-
-```scheme
-(guard (e ((symbol? e) (list 'symbol e))
-          ((error-object? e) (error-object-message e)))
-  (error "out of cheese" 42))          ; "out of cheese"
-```
-
-Native errors (wrong types, arity mismatches, division by zero) are catchable
-too and arrive as error objects. Error objects print as
-`#<error: message irritants...>`. There is no `with-exception-handler` or
-`raise-continuable`.
-
-### Promises and streams
-
-`delay` wraps an expression into a promise without evaluating it; `force`
-evaluates it and memoizes the result, so the expression runs at most once.
-Forcing a non-promise returns it unchanged. Promises print as `#<promise>`,
-which also means displaying an infinite stream terminates.
-
-`cons-stream` is the SICP stream constructor: `(cons-stream a b)` evaluates `a`
-and delays `b`, producing `(cons a (delay b))`.
-
-```scheme
-(define (integers-from n) (cons-stream n (integers-from (+ n 1))))
-(define integers (integers-from 1))
-(stream->list (stream-take (stream-filter even? integers) 5))  ; (2 4 6 8 10)
-```
-
-The preamble defines the stream library: `the-empty-stream`, `stream-null?`,
-`stream-car`, `stream-cdr`, `stream-ref`, `stream-map` (accepts multiple
-streams), `stream-filter`, `stream-for-each`, `stream-take`, `stream->list`,
-`stream-enumerate-interval`.
-
-Forcing replaces the stored thunk with its value, dropping the captured
-environment, so the consumed prefix of a stream can be garbage-collected once
-nothing else references it.
+- Exactness: `exact?`, `inexact?`, `exact`, `inexact` (aliases `inexact->exact`, `exact->inexact`)
+- Comparison: `<`, `>`, `=`, `<=`, `>=` (all accept multiple arguments and test pairwise)
+- Lists: `cons`, `car`, `cdr`, `list`, `length`, `list-ref`, `set-car!`, `set-cdr!`
+- Strings: `string-length`, `string-ref`, `substring`, `string-append`, `string=?`
+- Vectors: `vector`, `make-vector`, `vector-ref`, `vector-set!`, `vector-length`, `vector->list`, `list->vector`
+- Characters: `char=?`, `char->integer`, `integer->char`, `string->list`, `list->string`
+- Type predicates: `null?`, `boolean?`, `number?`, `integer?`, `char?`, `pair?`, `symbol?`, `string?`, `procedure?`, `list?`, `vector?`, `error-object?`, `promise?`, `void?`
+- Equality: `eq?`, `equal?`, `eqv?`
+- Conversion: `number->string`, `string->number`, `symbol->string`, `string->symbol`
+- I/O: `display`, `write`, `newline`, `read`
+- Other: `not`, `error`, `raise`, `error-object-message`, `error-object-irritants`, `eval`, `apply` (variadic), `force`, `void`, `load`, `file-exists?`, `exit`
 
 ### Standard library
 
-A preamble written in Scheme is evaluated at startup. It defines:
+- Lists: `caar` through `cddddr`, `map`, `for-each`, `filter`, `reduce`, `fold-right`, `last-pair`, `list-tail`, `append`, `append!`, `reverse`, `zip`, `iota`, `memq`, `member`, `assoc`, `assv`, `any`, `every`
 
-`caar` through `cddddr`, `map`, `for-each`, `filter`, `reduce`, `fold-right`,
-`last-pair`, `list-tail`, `append`, `append!`, `reverse`, `zip`, `iota`, `memq`,
-`member`, `assoc`, `assv`, `any`, `every`, `compose`, `partial`, `curry`
+- Streams: `the-empty-stream`, `stream-null?`, `stream-car`, `stream-cdr`, `stream-ref`, `stream-map`, `stream-filter`, `stream-for-each`, `stream-take`, `stream->list`, `stream-enumerate-interval`
 
-`map` and `for-each` accept multiple lists: `(map + '(1 2) '(3 4))` returns `(4 6)`.
+- Higher-order functions: `compose`, `partial`, `curry`
 
-`iota` accepts optional start and step: `(iota 3 10 2)` returns `(10 12 14)`.
-
-## Tail call optimization
-
-Tail calls in `if`, `cond`, `let`, `let*`, `begin`, `and`, `or`, and procedure
-application are optimized. The evaluator uses a trampoline loop: special forms
-in tail position return a `TailCall` value instead of recursing, and the outer
-`eval` loop re-enters the evaluator until a result is produced. This keeps the
-C stack constant regardless of Scheme recursion depth.
-
-```scheme
-(define (loop n)
-  (if (= n 0) 'done (loop (- n 1))))
-(loop 1000000)  ; runs in constant space
-```
-
-Mutual tail recursion works:
-
-```scheme
-(define (even? n) (if (= n 0) #t (odd? (- n 1))))
-(define (odd? n) (if (= n 0) #f (even? (- n 1))))
-(even? 1000000)  ; #t
-```
-
-## Garbage collection
-
-The collector is non-moving mark-and-sweep. All heap-allocated objects (cons
-cells, strings, vectors, closures, environments, bignums) are tracked in a
-linear list. When the live count exceeds a threshold, the collector walks all
-objects reachable from the global environment, then deletes everything else.
-After collection, the threshold is reset to twice the surviving object count.
-
-Booleans, characters, symbols, fixnums, inexact reals, and null/void are not
-heap-allocated; bignums are. Symbols are interned into an `unordered_set`; two
-symbols with the same name share a pointer, so symbol comparison is pointer
-equality.
+`map` and `for-each` accept multiple lists. `stream-map` and `stream-for-each` accept multiple streams. Each stops when its shortest input ends.
 
 ## Tests
 
+After building the native target, run its API and language tests with:
+
 ```bash
+ctest --test-dir build/native --output-on-failure
+```
+
+The complete suite also tests the WebAssembly module through its JavaScript interface. It requires the Emscripten SDK and Node.js:
+
+```bash
+./web/build.sh
 ./run_tests.sh
 ```
 
-The build trees must already exist. The native tests exercise the public API
-and the Scheme language. The web test exercises the compiled Wasm module
-through its JavaScript interface.
-
-The Scheme suite owns its registry, state, selection, and reporting in
-`tests/suite.scm`. There are 15 test groups covering arithmetic, numbers,
-closures, lists, strings, chars, vectors, special forms, macros, errors,
-streams, preamble functions, tail calls, integration, and stress scenarios.
-
-To run selected groups interactively:
-
-```bash
-./build/native/scheme -i tests/suite.scm
-```
-
-```scheme
-(run-tests '(arithmetic lists))
-```
-
-## Source layout
-
-The public library header is `include/scheme/session.hpp`. The implementation
-lives in `src/`; its headers are private:
-
-- `lexer.cpp` - pull-based tokenization, including nested comments and
-  incomplete tokens.
-- `reader.cpp` - recursive datum construction and incomplete-input reporting.
-- `parser.cpp` - syntax validation, macro expansion, and expression
-  construction.
-- `expression.cpp` - expression evaluation, tracing, procedure application,
-  and tail-call production.
-- `types.cpp` - the `Obj` class wrapping
-  `std::variant<bool, char, Number, Symbol, String*, Cons*, Vector*,
-  Procedure*, Builtin*, Promise*, Error*, Null, Void>`, where `Number` is a
-  fixnum/bignum/double variant. Provides type checks, accessors, structural
-  equality, printing (`to_write`/`to_display`), and GC-managed runtime objects,
-  including lexical environments.
-- `number.cpp` - the `Number` type: exact fixnums that auto-promote to
-  libtommath bignums on overflow, plus inexact doubles. Arithmetic, comparison,
-  and exact/inexact conversion.
-- `ctx.cpp` - runtime ownership, execution, and the tail-call trampoline.
-- `arity.cpp` - argument-count validation.
-- `builtins.cpp` - built-in procedure registration, argument decoding, and
-  implementations.
-- `preamble.cpp` - the standard library, stored as a string literal and
-  evaluated at startup.
-- `session.cpp` - the public `scheme::Session` boundary.
-  `Ctx` owns the managed heap, symbol table, global environment, and garbage
-  collector. It initializes the interpreter and exposes incremental and strict
-  execution.
-
-The two frontends use `scheme::Session` through
-`include/scheme/session.hpp`:
-
-- `cli/main.cpp` - argument parsing, file execution, and the replxx REPL loop.
-- `web/main.cpp` - wraps `scheme::Session` with Embind (see [Web](#web)),
-  compiled to WebAssembly.
-
-## Internals
-
-`define` is an expression and can appear in any expression position. Macros
-take precedence over lexical bindings in operator position. `load` forwards
-program output but suppresses result echo.
-
-Parsing and evaluation share one recursion budget for deep non-tail work.
-Garbage collection runs only between top-level forms, so memory used within
-one top-level form is unbounded.
+`run_tests.sh` expects both `build/native` and `build/wasm` to exist.
 
 ## Limitations
 
-- No hygienic macros (`define-syntax`, `syntax-rules`). `define-macro` is non-hygienic.
-- No continuations (`call/cc`).
-- Numbers are exact integers (fixnum, auto-promoting to arbitrary-precision
-  bignum) or inexact reals (IEEE 754 double). No rationals or complex numbers.
-- No ports. `read` uses stdin; output is emitted through the session callback.
-- Deep non-tail recursion is bounded by the C stack: the native binary handles
-  a few thousand frames, and in the browser the wasm build (8MB stack) is
-  capped lower by the JavaScript engine's own call-stack limit. Overflowing it
-  raises a catchable error rather than crashing the session. Tail recursion is
-  unaffected and runs in constant space.
+- Macros are non-hygienic. `define-syntax` and `syntax-rules` are not implemented.
+- Continuations such as `call/cc` are not implemented.
+- There are no ports. `read` uses standard input, while output is delivered through the session callback.
+- Numbers are limited to exact integers and inexact doubles. Rational and complex numbers are not implemented.
+- Deep reading, parsing, and non-tail evaluation are bounded by a recursion limit. Proper tail calls are unaffected.
+- Garbage collection runs only between top-level forms, so allocations cannot be reclaimed while a top-level form is executing.

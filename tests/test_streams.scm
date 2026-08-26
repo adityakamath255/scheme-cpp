@@ -54,6 +54,13 @@
                    (stream-take integers 3))
   (assert "stream-for-each" '(3 2 1) acc)
 
+  (define multi-acc '())
+  (stream-for-each
+    (lambda (x y) (set! multi-acc (cons (+ x y) multi-acc)))
+    (stream-enumerate-interval 1 3)
+    (stream-enumerate-interval 10 11))
+  (assert "stream-for-each multi" '(13 11) multi-acc)
+
   (define taps 0)
   (define tapped
     (stream-map (lambda (x) (set! taps (+ taps 1)) x) integers))

@@ -10,16 +10,6 @@
 
 namespace {
 
-void trace_expression(const Expr *expression,
-                      std::vector<const HeapEntity *> &worklist) {
-  worklist.push_back(expression);
-}
-
-void trace_expressions(std::span<const Expr *const> expressions,
-                       std::vector<const HeapEntity *> &worklist) {
-  worklist.append_range(expressions);
-}
-
 EvalResult apply_procedure(Obj, std::vector<Obj>, Ctx &);
 
 EvalResult eval_sequence(std::span<const Expr *const> expressions,
@@ -104,9 +94,9 @@ EvalResult IfExpr::eval(Env &env, Ctx &ctx) const {
 }
 
 void IfExpr::trace(std::vector<const HeapEntity *> &worklist) const {
-  trace_expression(predicate, worklist);
-  trace_expression(consequent, worklist);
-  trace_expression(alternative, worklist);
+  worklist.push_back(predicate);
+  worklist.push_back(consequent);
+  worklist.push_back(alternative);
 }
 
 BeginExpr::BeginExpr(std::vector<const Expr *> expressions)
@@ -117,7 +107,7 @@ EvalResult BeginExpr::eval(Env &env, Ctx &ctx) const {
 }
 
 void BeginExpr::trace(std::vector<const HeapEntity *> &worklist) const {
-  trace_expressions(expressions, worklist);
+  worklist.append_range(expressions);
 }
 
 LambdaExpr::LambdaExpr(Formals formals, const Expr *body)
@@ -128,7 +118,7 @@ EvalResult LambdaExpr::eval(Env &env, Ctx &ctx) const {
 }
 
 void LambdaExpr::trace(std::vector<const HeapEntity *> &worklist) const {
-  trace_expression(body, worklist);
+  worklist.push_back(body);
 }
 
 DefineExpr::DefineExpr(Symbol name, const Expr *initializer)
@@ -140,7 +130,7 @@ EvalResult DefineExpr::eval(Env &env, Ctx &ctx) const {
 }
 
 void DefineExpr::trace(std::vector<const HeapEntity *> &worklist) const {
-  trace_expression(initializer, worklist);
+  worklist.push_back(initializer);
 }
 
 SetExpr::SetExpr(Symbol name, const Expr *value)
@@ -154,7 +144,7 @@ EvalResult SetExpr::eval(Env &env, Ctx &ctx) const {
 }
 
 void SetExpr::trace(std::vector<const HeapEntity *> &worklist) const {
-  trace_expression(value, worklist);
+  worklist.push_back(value);
 }
 
 CallExpr::CallExpr(const Expr *procedure,
@@ -172,8 +162,8 @@ EvalResult CallExpr::eval(Env &env, Ctx &ctx) const {
 }
 
 void CallExpr::trace(std::vector<const HeapEntity *> &worklist) const {
-  trace_expression(procedure, worklist);
-  trace_expressions(arguments, worklist);
+  worklist.push_back(procedure);
+  worklist.append_range(arguments);
 }
 
 LetExpr::LetExpr(std::vector<Binding> bindings, const Expr *body)
@@ -189,9 +179,9 @@ EvalResult LetExpr::eval(Env &env, Ctx &ctx) const {
 
 void LetExpr::trace(std::vector<const HeapEntity *> &worklist) const {
   for (const auto &binding : bindings) {
-    trace_expression(binding.initializer, worklist);
+    worklist.push_back(binding.initializer);
   }
-  trace_expression(body, worklist);
+  worklist.push_back(body);
 }
 
 LetRecExpr::LetRecExpr(std::vector<Binding> bindings, const Expr *body)
@@ -211,9 +201,9 @@ EvalResult LetRecExpr::eval(Env &env, Ctx &ctx) const {
 void LetRecExpr::trace(
     std::vector<const HeapEntity *> &worklist) const {
   for (const auto &binding : bindings) {
-    trace_expression(binding.initializer, worklist);
+    worklist.push_back(binding.initializer);
   }
-  trace_expression(body, worklist);
+  worklist.push_back(body);
 }
 
 LogicalExpr::LogicalExpr(LogicalKind kind,
@@ -234,7 +224,7 @@ EvalResult LogicalExpr::eval(Env &env, Ctx &ctx) const {
 
 void LogicalExpr::trace(
     std::vector<const HeapEntity *> &worklist) const {
-  trace_expressions(operands, worklist);
+  worklist.append_range(operands);
 }
 
 CondExpr::CondExpr(std::vector<CondClause> clauses)
@@ -284,18 +274,18 @@ void CondExpr::trace(std::vector<const HeapEntity *> &worklist) const {
   for (const CondClause &clause : clauses) {
     std::visit(overloaded{
                    [&](CondTest c) {
-                     trace_expression(c.test, worklist);
+                     worklist.push_back(c.test);
                    },
                    [&](CondBody c) {
-                     trace_expression(c.test, worklist);
-                     trace_expression(c.body, worklist);
+                     worklist.push_back(c.test);
+                     worklist.push_back(c.body);
                    },
                    [&](CondArrow c) {
-                     trace_expression(c.test, worklist);
-                     trace_expression(c.receiver, worklist);
+                     worklist.push_back(c.test);
+                     worklist.push_back(c.receiver);
                    },
                    [&](CondElse c) {
-                     trace_expression(c.body, worklist);
+                     worklist.push_back(c.body);
                    },
                },
                clause);
@@ -311,8 +301,9 @@ EvalResult CaseExpr::eval(Env &env, Ctx &ctx) const {
     bool matched = !clause.datums;
     if (clause.datums) {
       matched = std::ranges::any_of(
-          *clause.datums,
-          [&](Obj datum) { return value.equals(datum); });
+        *clause.datums,
+        [&](Obj datum) { return value.equals(datum); }
+      );
     }
     if (matched) {
       return TailCall{clause.body, env};
@@ -322,14 +313,14 @@ EvalResult CaseExpr::eval(Env &env, Ctx &ctx) const {
 }
 
 void CaseExpr::trace(std::vector<const HeapEntity *> &worklist) const {
-  trace_expression(key, worklist);
+  worklist.push_back(key);
   for (const auto &clause : clauses) {
     if (clause.datums) {
       for (Obj datum : *clause.datums) {
         trace_child(datum, worklist);
       }
     }
-    trace_expression(clause.body, worklist);
+    worklist.push_back(clause.body);
   }
 }
 
@@ -351,8 +342,8 @@ EvalResult GuardExpr::eval(Env &env, Ctx &ctx) const {
 }
 
 void GuardExpr::trace(std::vector<const HeapEntity *> &worklist) const {
-  trace_expression(handler, worklist);
-  trace_expression(body, worklist);
+  worklist.push_back(handler);
+  worklist.push_back(body);
 }
 
 DelayExpr::DelayExpr(const Expr *body) : body{body} {}
@@ -362,7 +353,7 @@ EvalResult DelayExpr::eval(Env &env, Ctx &ctx) const {
 }
 
 void DelayExpr::trace(std::vector<const HeapEntity *> &worklist) const {
-  trace_expression(body, worklist);
+  worklist.push_back(body);
 }
 
 ConsStreamExpr::ConsStreamExpr(const Expr *head, const Expr *tail)
@@ -376,6 +367,6 @@ EvalResult ConsStreamExpr::eval(Env &env, Ctx &ctx) const {
 
 void ConsStreamExpr::trace(
     std::vector<const HeapEntity *> &worklist) const {
-  trace_expression(head, worklist);
-  trace_expression(tail, worklist);
+  worklist.push_back(head);
+  worklist.push_back(tail);
 }

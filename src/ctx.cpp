@@ -42,7 +42,7 @@ class EmitScope {
 public:
   EmitScope(scheme::Emit &slot, const scheme::Emit &replacement)
       : slot{slot},
-        previous{replacement ? replacement : no_op_emit()} {
+        previous{replacement} {
     slot.swap(previous);
   }
 
@@ -185,8 +185,8 @@ scheme::RunResult Ctx::run(std::string_view source) {
     auto &datum = std::get<ReadDatum>(read);
     Obj value = eval_global(datum.value);
 
-    // result echo relies on builtins running inside an eval frame at depth >= 1;
-    // load stays silent, so do not invoke builtins outside the trampoline
+    // runs started by load occur at depth > 0
+    // suppressing their result events
     if (outermost() && !value.is_void()) {
       result(value.to_write());
     }

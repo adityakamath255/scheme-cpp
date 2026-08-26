@@ -219,10 +219,12 @@ const std::string_view preamble = R"(
                         (stream-filter pred (stream-cdr s))))
           (else (stream-filter pred (stream-cdr s)))))
 
-  (define (stream-for-each f s)
-    (if (not (stream-null? s))
-        (begin (f (stream-car s))
-               (stream-for-each f (stream-cdr s)))))
+  (define (stream-for-each f stream . other-streams)
+    (let ((streams (cons stream other-streams)))
+      (if (not (any stream-null? streams))
+          (begin (apply f (map stream-car streams))
+                 (apply stream-for-each f
+                        (map stream-cdr streams))))))
 
   (define (stream-take s n)
     (if (or (= n 0) (stream-null? s))
