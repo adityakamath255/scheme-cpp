@@ -19,4 +19,8 @@
   (set-car! p 10)
   (assert "set-car!" 10 (car p))
   (set-cdr! p 20)
-  (assert "set-cdr!" 20 (cdr p)))
+  (assert "set-cdr!" 20 (cdr p))
+
+  (define cycle (cons 1 '()))
+  (set-cdr! cycle cycle)
+  (assert "list-ref circular" 1 (list-ref cycle 0)))

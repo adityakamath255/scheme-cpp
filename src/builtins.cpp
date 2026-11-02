@@ -462,9 +462,13 @@ static void install_lists(Ctx &ctx) {
   });
   install(ctx, "list-ref", [](Args raw, Ctx &) -> Obj {
     auto [pair, index] = match(raw, arg::pair, arg::index);
-    List list{pair};
-    require_index(list.elements.size(), index);
-    return list.elements[index];
+    for (; index > 0; --index) {
+      pair = pair->cdr.try_as_cons();
+      if (!pair) {
+        throw UnattributedError("index out of range");
+      }
+    }
+    return pair->car;
   });
   install(ctx, "set-car!", [](Args raw, Ctx &) {
     auto [pair, value] = match(raw, arg::pair, arg::any);
@@ -499,12 +503,11 @@ static void install_strings(Ctx &ctx) {
   });
   install(ctx, "string-append", [](Args raw, Ctx &ctx) {
     auto strings = match_many(raw, arg::string);
-    return ctx.alloc<String>(std::ranges::to<std::string>(
-        strings | std::views::transform([](String *string)
-                                            -> const std::string & {
-          return string->data;
-        }) |
-        std::views::join));
+    std::string result;
+    for (String *string : strings) {
+      result += string->data;
+    }
+    return ctx.alloc<String>(std::move(result));
   });
   install(ctx, "string=?", [](Args raw, Ctx &) {
     auto [a, b] = match(raw, arg::string, arg::string);

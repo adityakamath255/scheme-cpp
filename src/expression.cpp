@@ -3,6 +3,7 @@
 #include "ctx.hpp"
 #include "errors.hpp"
 
+#include <algorithm>
 #include <ranges>
 #include <span>
 #include <utility>

@@ -3,7 +3,6 @@
 #include "scheme/session.hpp"
 #include "types.hpp"
 
-#include <algorithm>
 #include <concepts>
 #include <cstddef>
 #include <memory>
@@ -79,9 +78,8 @@ public:
 template<std::ranges::bidirectional_range R>
   requires std::constructible_from<Obj, std::ranges::range_reference_t<R>>
 Obj list_from(R &&elements, Ctx &ctx, Obj tail = Null{}) {
-  return std::ranges::fold_left(
-      std::forward<R>(elements) | std::views::reverse, tail,
-      [&ctx](Obj rest, Obj element) -> Obj {
-        return ctx.alloc<Cons>(element, rest);
-      });
+  for (Obj element : std::forward<R>(elements) | std::views::reverse) {
+    tail = ctx.alloc<Cons>(element, tail);
+  }
+  return tail;
 }
