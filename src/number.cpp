@@ -103,115 +103,43 @@ bool rep_is_negative(const Rep &r) {
   }, r);
 }
 
-enum class BinaryOperation { Add, Subtract, Multiply };
-enum class UnaryOperation { Negate, Absolute };
+constexpr overloaded add_op {
+  [](__int128 a, __int128 b) { return a + b; },
+  [](double a, double b) { return a + b; },
+  [](const mp_int *a, const mp_int *b, mp_int *r) { return mp_add(a, b, r); },
+};
 
-__int128 apply(BinaryOperation operation, __int128 a, __int128 b) {
-  switch (operation) {
-  case BinaryOperation::Add:
-    return a + b;
-  case BinaryOperation::Subtract:
-    return a - b;
-  case BinaryOperation::Multiply:
-    return a * b;
-  }
-  std::unreachable();
-}
+constexpr overloaded sub_op {
+  [](__int128 a, __int128 b) { return a - b; },
+  [](double a, double b) { return a - b; },
+  [](const mp_int *a, const mp_int *b, mp_int *r) { return mp_sub(a, b, r); },
+};
 
-double apply(BinaryOperation operation, double a, double b) {
-  switch (operation) {
-  case BinaryOperation::Add:
-    return a + b;
-  case BinaryOperation::Subtract:
-    return a - b;
-  case BinaryOperation::Multiply:
-    return a * b;
-  }
-  std::unreachable();
-}
+constexpr overloaded mul_op {
+  [](__int128 a, __int128 b) { return a * b; },
+  [](double a, double b) { return a * b; },
+  [](const mp_int *a, const mp_int *b, mp_int *r) { return mp_mul(a, b, r); },
+};
 
-mp_err apply(BinaryOperation operation, const mp_int *a, const mp_int *b,
-             mp_int *result) {
-  switch (operation) {
-  case BinaryOperation::Add:
-    return mp_add(a, b, result);
-  case BinaryOperation::Subtract:
-    return mp_sub(a, b, result);
-  case BinaryOperation::Multiply:
-    return mp_mul(a, b, result);
-  }
-  std::unreachable();
-}
-
-int64_t apply(UnaryOperation operation, int64_t value) {
-  switch (operation) {
-  case UnaryOperation::Negate:
-    return -value;
-  case UnaryOperation::Absolute:
-    return value < 0 ? -value : value;
-  }
-  std::unreachable();
-}
-
-double apply(UnaryOperation operation, double value) {
-  switch (operation) {
-  case UnaryOperation::Negate:
-    return -value;
-  case UnaryOperation::Absolute:
-    return value < 0 ? -value : value;
-  }
-  std::unreachable();
-}
-
-mp_err apply(UnaryOperation operation, const mp_int *value, mp_int *result) {
-  switch (operation) {
-  case UnaryOperation::Negate:
-    return mp_neg(value, result);
-  case UnaryOperation::Absolute:
-    return mp_abs(value, result);
-  }
-  std::unreachable();
-}
-
-Rep exact_binop(const Rep &a, const Rep &b, Ctx &ctx,
-                BinaryOperation operation) {
-  BigInt *r = ctx.alloc<BigInt>();
-  Mp sa, sb;
-  check(apply(operation, as_mp(a, sa), as_mp(b, sb), &r->val));
-  return from_bigint(r, ctx);
-}
-
-Rep arith(const Rep &a, const Rep &b, Ctx &ctx,
-          BinaryOperation operation) {
+template <class Op>
+Rep arith(const Rep &a, const Rep &b, Ctx &ctx, Op op) {
   if (rep_is_exact(a) && rep_is_exact(b)) {
     auto ai = std::get_if<int64_t>(&a);
     auto bi = std::get_if<int64_t>(&b);
     if (ai && bi) {
-      __int128 w = apply(operation, static_cast<__int128>(*ai),
-                         static_cast<__int128>(*bi));
+      __int128 w = op(static_cast<__int128>(*ai), static_cast<__int128>(*bi));
       if (w >= fixnum_min && w <= fixnum_max) {
         return of_i64(static_cast<int64_t>(w), ctx);
       }
     }
-    return exact_binop(a, b, ctx, operation);
+    BigInt *r = ctx.alloc<BigInt>();
+    Mp sa, sb;
+    check(op(as_mp(a, sa), as_mp(b, sb), &r->val));
+    return from_bigint(r, ctx);
   }
   else {
-    return apply(operation, rep_to_double(a), rep_to_double(b));
+    return op(rep_to_double(a), rep_to_double(b));
   }
-}
-
-Rep unary(const Rep &a, Ctx &ctx, UnaryOperation operation) {
-  return std::visit(overloaded {
-    [&](int64_t v) -> Rep {
-      return of_i64(apply(operation, v), ctx);
-    },
-    [&](BigInt *b) -> Rep {
-      BigInt *r = ctx.alloc<BigInt>();
-      check(apply(operation, &b->val, &r->val));
-      return from_bigint(r, ctx);
-    },
-    [&](double d) -> Rep { return apply(operation, d); },
-  }, a);
 }
 
 struct QuotRem { Rep quot; Rep rem; };
@@ -307,15 +235,15 @@ bool Number::is_even() const {
 }
 
 Number Number::add(Number o, Ctx &ctx) const {
-  return Number(arith(rep, o.rep, ctx, BinaryOperation::Add));
+  return Number(arith(rep, o.rep, ctx, add_op));
 }
 
 Number Number::sub(Number o, Ctx &ctx) const {
-  return Number(arith(rep, o.rep, ctx, BinaryOperation::Subtract));
+  return Number(arith(rep, o.rep, ctx, sub_op));
 }
 
 Number Number::mul(Number o, Ctx &ctx) const {
-  return Number(arith(rep, o.rep, ctx, BinaryOperation::Multiply));
+  return Number(arith(rep, o.rep, ctx, mul_op));
 }
 
 Number Number::div(Number o, Ctx &ctx) const {
@@ -332,11 +260,22 @@ Number Number::div(Number o, Ctx &ctx) const {
 }
 
 Number Number::neg(Ctx &ctx) const {
-  return Number(unary(rep, ctx, UnaryOperation::Negate));
+  return std::visit(overloaded {
+    [&](int64_t v) { return Number(of_i64(-v, ctx)); },
+    [&](BigInt *b) {
+      BigInt *r = ctx.alloc<BigInt>();
+      check(mp_neg(&b->val, &r->val));
+      return Number(from_bigint(r, ctx));
+    },
+    [](double d) { return inexact(-d); },
+  }, rep);
 }
 
 Number Number::abs(Ctx &ctx) const {
-  return Number(unary(rep, ctx, UnaryOperation::Absolute));
+  if (auto d = std::get_if<double>(&rep)) {
+    return inexact(std::fabs(*d));
+  }
+  return rep_is_negative(rep) ? neg(ctx) : *this;
 }
 
 Number Number::sqrt(Ctx &ctx) const {

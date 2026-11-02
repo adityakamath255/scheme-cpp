@@ -76,6 +76,7 @@
           (number->string (/ (expt 10 40) (expt 10 20))))
 
   (assert "abs bignum" "1000000000000000000000" (number->string (abs (- (expt 10 21)))))
+  (assert "abs negative zero" "0.0" (number->string (abs -0.0)))
   (assert "neg bignum equals 0 - x" #t (= (- (expt 2 64)) (- 0 (expt 2 64))))
 
   (assert "floor of exact -> exact" 5 (floor 5))
